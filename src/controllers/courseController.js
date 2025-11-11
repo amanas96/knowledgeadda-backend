@@ -119,8 +119,29 @@ export const getCourseContent = asyncHandler(async (req, res) => {
   }
 });
 
-// export {
-//   createCourse,
-//   addContentToCourse,
-//   getAllCourses, // <-- Add this
-// };
+export const getSingleContentItem = asyncHandler(async (req, res) => {
+  const { contentId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(contentId)) {
+    res.status(400);
+    throw new Error("Invalid Content ID");
+  }
+
+  const content = await Content.findById(contentId);
+
+  if (!content) {
+    res.status(404);
+    throw new Error("Content not found");
+  }
+  /// PayWall logic
+  if (content.isFree) {
+    return res.json(content);
+  }
+  if (req.user.isSubscribed) {
+    return res.json(content);
+  }
+
+  // 3. If not free and not subscribed, deny access
+  res.status(403);
+  throw new Error("Subscription required to view this content.");
+});
