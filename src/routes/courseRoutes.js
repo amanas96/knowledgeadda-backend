@@ -10,6 +10,7 @@ import {
   getAllCourses,
   getCourseById,
   getCourseContent,
+  getSingleContentItem,
 } from "../controllers/courseController.js";
 
 // Admin
@@ -22,6 +23,10 @@ router
   .get(protect, checkSubscription, getCourseContent);
 
 // router.route("/:courseId/content").post(protect, admin, addContentToCourse);
+
+router
+  .route("/content/:contentId")
+  .get(protect, checkSubscription, getSingleContentItem);
 
 // Student
 router.route("/:courseId").get(protect, getCourseById);

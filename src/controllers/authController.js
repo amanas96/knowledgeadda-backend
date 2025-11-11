@@ -117,6 +117,7 @@ import {
 import { sendPasswordResetEmail } from "../../utils/sendEmail.js";
 import jwt from "jsonwebtoken";
 import UserSubscription from "../models/userSubscription.js";
+import { getSubscriptionStatus } from "../../utils/getSubscriptionStatus.js";
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
@@ -241,18 +242,11 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     const user = await User.findById(decoded.id).select("-password");
 
-    const userObject = user.toObject();
-    const activeSubscription = await UserSubscription.findOne({
-      user: user._id,
-      status: "active",
-      endDate: { $gt: new Date() },
-    });
-    userObject.isSubscribed = !!activeSubscription;
-
     if (!user) {
       res.status(401);
       throw new Error("User not found");
     }
+    const isSubscribed = await getSubscriptionStatus(user._id);
 
     // 3. Issue new access token
     const accessToken = generateAccessToken(user._id);
@@ -263,6 +257,7 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
         name: user.name,
         email: user.email,
         isAdmin: user.isAdmin,
+        isSubscribed,
       },
     });
   } catch (error) {
@@ -314,12 +309,9 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
 // @access  Private
 export const getUserProfile = asyncHandler(async (req, res) => {
   const userObject = req.user.toObject();
-  const activeSubscription = await UserSubscription.findOne({
-    user: req.user._id,
-    status: "active",
-    endDate: { $gt: new Date() },
-  });
-  userObject.isSubscribed = !!activeSubscription;
+  const isSubscribed = await getSubscriptionStatus(req.user._id);
+  userObject.isSubscribed = isSubscribed;
+
   res.json(userObject);
 });
 
