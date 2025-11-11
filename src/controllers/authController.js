@@ -116,6 +116,7 @@ import {
 } from "../../utils/generateToken.js";
 import { sendPasswordResetEmail } from "../../utils/sendEmail.js";
 import jwt from "jsonwebtoken";
+import UserSubscription from "../models/userSubscription.js";
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
@@ -240,6 +241,14 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
     const user = await User.findById(decoded.id).select("-password");
 
+    const userObject = user.toObject();
+    const activeSubscription = await UserSubscription.findOne({
+      user: user._id,
+      status: "active",
+      endDate: { $gt: new Date() },
+    });
+    userObject.isSubscribed = !!activeSubscription;
+
     if (!user) {
       res.status(401);
       throw new Error("User not found");
@@ -304,8 +313,14 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
 // @route   GET /api/auth/profile
 // @access  Private
 export const getUserProfile = asyncHandler(async (req, res) => {
-  // We get req.user from the 'protect' middleware
-  res.json(req.user);
+  const userObject = req.user.toObject();
+  const activeSubscription = await UserSubscription.findOne({
+    user: req.user._id,
+    status: "active",
+    endDate: { $gt: new Date() },
+  });
+  userObject.isSubscribed = !!activeSubscription;
+  res.json(userObject);
 });
 
 // --- RESET PASSWORD ---
@@ -335,14 +350,15 @@ export const forgotPassword = asyncHandler(async (req, res) => {
     });
 
     // 3. Create reset URL (Update 3000 if your frontend runs on a different port)
-    const resetUrl = `http://localhost:3000/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
 
     // 4. Send the (mock) email
     await sendPasswordResetEmail(user.email, resetUrl);
   }
 
   // Always send a success response to prevent email enumeration
-  res.json({
+  return res.status(200).json({
+    success: true,
     message:
       "If an account with this email exists, a reset link has been sent.",
   });
