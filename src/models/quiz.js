@@ -6,13 +6,21 @@ const quizSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    // Link the quiz to the course it's part of
     course: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Course",
-      required: true,
+      required: false,
     },
-    // You can add more details here later, like time limit, total marks, etc.
+    category: {
+      type: String,
+      enum: ["General", "Polity", "Geography", "History", "Economy", "Science"],
+      default: "General",
+    },
+
+    timeLimit: { type: Number, default: 0 }, // in minutes
+    totalMarks: { type: Number, default: 0 }, // optional summary
+    isPublished: { type: Boolean, default: true }, // control visibility
+    isPremium: { type: Boolean, default: true },
   },
   {
     timestamps: true,
