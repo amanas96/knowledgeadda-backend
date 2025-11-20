@@ -19,7 +19,8 @@ const questionSchema = new mongoose.Schema({
     type: String,
     required: true, // e.g., "A"
   },
-  // You could add an "explanation" field here
+  marks: { type: Number, default: 1 }, // Each question can carry marks
+  explanation: { type: String },
 });
 
 const Question = mongoose.model("Question", questionSchema);

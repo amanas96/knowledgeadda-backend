@@ -20,6 +20,19 @@ const quizAttemptSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    percentage: {
+      type: Number,
+      default: function () {
+        return this.totalQuestions
+          ? (this.score / this.totalQuestions) * 100
+          : 0;
+      },
+    },
+    status: {
+      type: String,
+      enum: ["completed", "in-progress"],
+      default: "completed",
+    },
     // We store what the user answered for every question
     answers: [
       {

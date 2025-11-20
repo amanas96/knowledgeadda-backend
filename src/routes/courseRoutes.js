@@ -5,35 +5,53 @@ import { protect, admin } from "../middleware/authMiddleware.js";
 import { checkSubscription } from "../middleware/subscriptionMiddleware.js";
 
 import {
-  createCourse,
-  addContentToCourse,
   getAllCourses,
   getCourseById,
+  createCourse,
+  updateCourse,
+  deleteCourse,
   getCourseContent,
+  addContentToCourse,
   getSingleContentItem,
+  deleteContentFromCourse,
 } from "../controllers/courseController.js";
 
 // Admin
 router.route("/").post(protect, admin, createCourse).get(getAllCourses);
 
-// ...
+/**
+ * ===============================================
+ * @route   /api/v1/courses/:courseId
+ * ===============================================
+ */
+router
+  .route("/:courseId")
+  .get(getCourseById)
+  .put(protect, admin, updateCourse)
+  .delete(protect, admin, deleteCourse);
+
+/**
+ * ===============================================
+ * @route   /api/v1/courses/:courseId/content
+ * ===============================================
+ */
 router
   .route("/:courseId/content")
   .post(protect, admin, addContentToCourse)
   .get(protect, checkSubscription, getCourseContent);
 
-// router.route("/:courseId/content").post(protect, admin, addContentToCourse);
+/**
+ * ===============================================
+ * @route   /api/v1/courses/:courseId/content/:contentId
+ * ===============================================
+ */
 
 router
-  .route("/content/:contentId")
-  .get(protect, checkSubscription, getSingleContentItem);
+  .route("/:courseId/content/:contentId")
+  .get(protect, checkSubscription, getSingleContentItem)
+  .delete(protect, admin, deleteContentFromCourse);
 
 // Student
 router.route("/:courseId").get(protect, getCourseById);
-
-// /// Paywall
-// router
-//   .route("/:courseId/content")
-//   .get(protect, checkSubscription, getCourseContent);
 
 export default router;
