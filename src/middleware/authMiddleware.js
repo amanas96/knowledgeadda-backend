@@ -17,13 +17,21 @@ export const protect = asyncHandler(async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
 
       // 3. THE FIX: Get user ID directly from 'decoded.id'
-      req.user = await User.findById(decoded.id).select("-password");
+      // req.user = await User.findById(decoded.id).select("-password");
+
+      ////for more user bypass db verification
+      req.user = {
+        _id: decoded.id,
+        email: decoded.email,
+        name: decoded.name,
+        isAdmin: decoded.isAdmin,
+      };
 
       if (!req.user) {
         return res.status(401).json({ msg: "Not authorized, user not found" });
       }
 
-      next(); // Proceed to the controller
+      next();
     } catch (error) {
       console.error(error);
       // This will catch expired tokens

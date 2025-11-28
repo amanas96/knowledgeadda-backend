@@ -11,6 +11,7 @@ import courseRouter from "./routes/courseRoutes.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import quizRouter from "./routes/quizRoutes.js";
 import connectDB from "./config/db.js";
+import errorHandler from "./middleware/errorMiddleware.js";
 
 // Load .env variables
 config();
@@ -20,7 +21,8 @@ const app = express();
 // --- App Middleware ---
 app.use(morgan("tiny"));
 app.use(cors());
-app.use(express.json()); // Body parser for JSON
+app.use(express.json());
+app.use(errorHandler);
 
 // --- App Port ---
 const port = process.env.PORT || 8080;
@@ -55,7 +57,7 @@ connectDB()
   })
   .catch((err) => {
     console.log("Invalid Database connection");
-    console.error(err); // Log the actual error
+    console.error(err);
   });
 app.use((err, req, res, next) => {
   console.error(err.stack);

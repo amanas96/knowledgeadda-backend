@@ -1,16 +1,31 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
+const passwordRegex = new RegExp(
+  "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,12})"
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: {
+      type: String,
+      required: true,
+      minlength: [6, "Password must be at least 6 Character long"],
+      validate: {
+        validator: function (v) {
+          return passwordRegex.test(v);
+        },
+        message: (props) =>
+          `${props.value} does not meet password requirements (min 6, special char, etc.)`,
+      },
+    },
 
     isAdmin: {
       type: Boolean,
       required: true,
-      default: false, // Default new users to NOT be admins
+      default: false,
     },
     date: { type: Date, default: Date.now },
   },
