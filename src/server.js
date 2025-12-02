@@ -1,7 +1,9 @@
+import { config } from "dotenv";
+config();
+
 import express from "express";
 import morgan from "morgan";
 import cors from "cors";
-import { config } from "dotenv";
 
 // --- Import Routers ---
 // import mainRouter from "./router/route.js";
@@ -14,7 +16,6 @@ import connectDB from "./config/db.js";
 import errorHandler from "./middleware/errorMiddleware.js";
 
 // Load .env variables
-config();
 
 const app = express();
 

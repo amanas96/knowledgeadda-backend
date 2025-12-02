@@ -15,53 +15,62 @@ import { getSubscriptionStatus } from "../../utils/getSubscriptionStatus.js";
 // @route   POST /api/auth/register
 // @access  Public
 export const registerUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  const { name, email, password } = req.body;
-  const userExists = await User.findOne({ email });
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    const { name, email, password } = req.body;
 
-  if (userExists) {
-    return res.status(400).json({ message: "User already exists" });
-  }
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ message: "User already exists" });
+    }
 
-  const user = new User({
-    name,
-    email,
-    password,
-    isAdmin: email === "amanasadmin@gmail.com" ? true : false,
-  });
-  await user.save();
-
-  if (user) {
-    // 1. Create tokens
-    const accessToken = generateAccessToken(user);
-    const refreshToken = generateRefreshToken(user._id);
-
-    // 2. Save Refresh Token to database
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await Token.create({
-      userId: user._id,
-      token: refreshToken,
-      type: "refresh",
-      expiresAt,
+    const user = new User({
+      name,
+      email,
+      password,
+      isAdmin: email === "amanasadmin@gmail.com" ? true : false,
     });
+    await user.save();
 
-    // 3. Send response
-    res.status(201).json({
-      accessToken,
-      refreshToken,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-      },
-    });
-  } else {
-    res.status(500);
-    throw new Error("Invalid user data");
+    if (user) {
+      // 1. Create tokens
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user._id);
+
+      // 2. Save Refresh Token to database
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      await Token.create({
+        userId: user._id,
+        token: refreshToken,
+        type: "refresh",
+        expiresAt,
+      });
+
+      // 3. Send response
+      res.status(201).json({
+        accessToken,
+        refreshToken,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          isAdmin: user.isAdmin,
+        },
+      });
+    } else {
+      res.status(500);
+      throw new Error("Invalid user data");
+    }
+  } catch (err) {
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ message: err.message });
+    }
+
+    console.error(err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
 

@@ -17,8 +17,8 @@ const userSchema = new mongoose.Schema(
         validator: function (v) {
           return passwordRegex.test(v);
         },
-        message: (props) =>
-          `${props.value} does not meet password requirements (min 6, special char, etc.)`,
+        message: () =>
+          "Password must include at least one uppercase letter, one lowercase, one number, one special character",
       },
     },
 
