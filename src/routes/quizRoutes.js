@@ -44,7 +44,7 @@ import {
   getQuizzesForCourse,
   updateQuiz,
   deleteQuiz,
-  getQuizById, // ← Make sure this is imported!
+  getQuizById,
   getQuizQuestions,
   addQuestionToQuiz,
   updateQuestion,

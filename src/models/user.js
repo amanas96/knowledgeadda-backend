@@ -28,6 +28,14 @@ const userSchema = new mongoose.Schema(
       default: false,
     },
     date: { type: Date, default: Date.now },
+
+    // --- NEW PROFILE FIELDS ---
+    phone: { type: String },
+    address: { type: String },
+    city: { type: String },
+    state: { type: String },
+    pinCode: { type: String },
+    landmark: { type: String },
   },
   { timestamp: true }
 );

@@ -20,6 +20,11 @@ const courseSchema = new mongoose.Schema(
       type: [String], // An array of strings
       default: [], // e.g., ["UPSC", "History", "Modern India"]
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
   },
   {
     timestamps: true,

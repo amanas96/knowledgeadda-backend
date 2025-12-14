@@ -6,7 +6,6 @@ import {
   refreshAccessToken,
   logoutUser,
   logoutAllDevices,
-  getUserProfile,
   forgotPassword,
   resetPassword,
 } from "../controllers/authController.js";
@@ -18,9 +17,15 @@ const router = express.Router();
 const registerValidation = [
   check("name", "Name is required").not().isEmpty(),
   check("email", "Please include a valid email").isEmail(),
-  check("password", "Password must be 6 or more characters").isLength({
-    min: 6,
-  }),
+  check("password")
+    .isLength({ min: 6 })
+    .withMessage("Password must be 6 or more characters long")
+    .matches(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{6,12}$/
+    )
+    .withMessage(
+      "Password must include at least one uppercase, lowercase, number, and special character"
+    ),
 ];
 
 const loginValidation = [
@@ -37,9 +42,15 @@ const emailValidation = [
 ];
 
 const resetPasswordValidation = [
-  check("password", "Password must be 6 or more characters").isLength({
-    min: 6,
-  }),
+  check("password")
+    .isLength({ min: 6 })
+    .withMessage("Password must be 6 or more characters long")
+    .matches(
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{6,12}$/
+    )
+    .withMessage(
+      "Password must include at least one uppercase, lowercase, number, and special character"
+    ),
 ];
 
 // 3. APPLY RULES TO ROUTES
@@ -51,7 +62,7 @@ router.post("/forgot-password", emailValidation, forgotPassword);
 router.post("/reset-password/:token", resetPasswordValidation, resetPassword);
 
 // Profile route doesn't need body validation
-router.get("/profile", protect, getUserProfile);
+
 router.post("/logout-all", protect, logoutAllDevices);
 
 export default router;

@@ -146,6 +146,19 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
   // 2. Verify the token
   try {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    if (tokenDoc.userId.toString() !== decoded.id) {
+      console.error("⚠️ Refresh Token integrity failure", {
+        storedUser: tokenDoc.userId.toString(),
+        tokenUser: decoded.id,
+      });
+
+      await Token.deleteOne({ _id: tokenDoc._id });
+
+      return res.status(403).json({
+        message: "Token integrity error — refresh token invalidated",
+      });
+    }
     const user = await User.findById(decoded.id).select("-password");
 
     if (!user) {
@@ -156,7 +169,7 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
 
     // 3. Issue new access token
     const accessToken = generateAccessToken(user);
-    res.json({
+    res.status(200).json({
       accessToken,
       user: {
         _id: user._id,
@@ -215,10 +228,102 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
 // @access  Private
 export const getUserProfile = asyncHandler(async (req, res) => {
   const userObject = { ...req.user };
-  const isSubscribed = await getSubscriptionStatus(req.user._id);
-  userObject.isSubscribed = isSubscribed;
 
-  res.json(userObject);
+  const activeSubscription = await UserSubscription.findOne({
+    user: req.user._id,
+    status: "active",
+    endDate: { $gt: new Date() },
+  }).populate("plan", "name price durationInDays");
+
+  // 3. Attach details
+  if (activeSubscription) {
+    userObject.isSubscribed = true;
+    userObject.subscription = {
+      planName: activeSubscription.plan.name,
+      startDate: activeSubscription.startDate,
+      endDate: activeSubscription.endDate,
+      status: activeSubscription.status,
+    };
+  } else {
+    userObject.isSubscribed = false;
+    userObject.subscription = null;
+  }
+
+  // ===============================
+  // ✅ 3. ADMIN DASHBOARD DATA
+  // ===============================
+  if (req.user.role === "admin") {
+    const myCourses = await Course.find({
+      createdBy: req.user._id,
+    }).sort({ createdAt: -1 });
+
+    const myContent = await Content.find({
+      createdBy: req.user._id,
+    })
+      .populate("course", "title")
+      .sort({ createdAt: -1 });
+
+    return res.json({
+      role: "admin",
+      user: userObject,
+      stats: {
+        totalCourses: myCourses.length,
+        totalContent: myContent.length,
+      },
+      myCourses,
+      myContent,
+    });
+  }
+
+  const watchHistory = await WatchHistory.find({
+    user: req.user._id,
+  })
+    .populate("content", "title contentType contentUrl")
+    .populate("course", "title thumbnailUrl")
+    .sort({ lastWatchedAt: -1 });
+
+  const totalWatchTime = watchHistory.reduce(
+    (sum, entry) => sum + (entry.watchTime || 0),
+    0
+  );
+
+  const totalWatchedContents = watchHistory.length;
+
+  const quizAttempts = await QuizAttempt.find({
+    user: req.user._id,
+    status: "completed",
+  });
+
+  const quizzesCompleted = quizAttempts.length;
+
+  const totalQuizScore = quizAttempts.reduce(
+    (sum, attempt) => sum + attempt.score,
+    0
+  );
+
+  const avgQuizPercentage =
+    quizAttempts.length > 0
+      ? Math.round(
+          quizAttempts.reduce((sum, q) => sum + q.percentage, 0) /
+            quizAttempts.length
+        )
+      : 0;
+
+  return res.json({
+    role: "student",
+    user: userObject,
+
+    stats: {
+      totalWatchTime,
+      totalWatchedContents,
+      quizzesCompleted,
+      totalQuizScore,
+      avgQuizPercentage,
+    },
+
+    watchHistory,
+    quizAttempts,
+  });
 });
 
 // --- RESET PASSWORD ---
@@ -297,4 +402,53 @@ export const resetPassword = asyncHandler(async (req, res) => {
   await Token.deleteOne({ _id: tokenDoc._id });
 
   res.json({ message: "Password reset successfully" });
+});
+
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
+// @access  Private
+export const updateUserProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  const { phone, address, city, state, pinCode, landmark } = req.body;
+
+  // Validate (optional but recommended)
+  // if (!phone || !address || !city || !state || !pinCode) {
+  //   return res.status(400).json({
+  //     message: "All required fields must be filled.",
+  //   });
+  // }
+
+  // Find user
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  // Update fields
+  // This allows partial updates (e.g. just updating city)
+  if (req.body.phone) user.phone = req.body.phone;
+  if (req.body.address) user.address = req.body.address;
+  if (req.body.city) user.city = req.body.city;
+  if (req.body.state) user.state = req.body.state;
+  if (req.body.pinCode) user.pinCode = req.body.pinCode;
+  if (req.body.landmark) user.landmark = req.body.landmark;
+  if (req.body.name) user.name = req.body.name;
+
+  // Save to DB
+  const updatedUser = await user.save();
+
+  res.json({
+    message: "Profile updated successfully",
+    updatedProfile: {
+      name: updatedUser.name,
+      phone: updatedUser.phone,
+      address: updatedUser.address,
+      city: updatedUser.city,
+      state: updatedUser.state,
+      pinCode: updatedUser.pinCode,
+      landmark: updatedUser.landmark,
+    },
+  });
 });

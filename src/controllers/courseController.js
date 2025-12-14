@@ -2,6 +2,7 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Course from "../models/courseModel.js";
 import Content from "../models/contentModel.js";
+import WatchHistory from "../models/watchHistoryModel.js";
 import Quiz from "../models/quiz.js";
 import Question from "../models/question.js";
 import { uploadOnCloudinary } from "../../utils/cloudinary.js";
@@ -57,6 +58,7 @@ export const createCourse = asyncHandler(async (req, res) => {
     description,
     thumbnailUrl,
     tags: tags || [],
+    createdBy: req.user._id,
   });
 
   res.status(201).json(course);
@@ -268,6 +270,7 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
     publicId,
     videoDuration,
     isFree: isFree === "true" || isFree === true,
+    createdBy: req.user._id,
   });
 
   console.log("✅ CONTENT CREATED:", content);
@@ -308,6 +311,23 @@ export const getSingleContentItem = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Subscription required to access this content");
   }
+
+  await WatchHistory.findOneAndUpdate(
+    {
+      user: req.user._id,
+      content: contentId,
+    },
+    {
+      user: req.user._id,
+      content: contentId,
+      course: courseId,
+      lastWatchedAt: new Date(),
+    },
+    {
+      upsert: true,
+      new: true,
+    }
+  );
 
   res.json(content);
 });
