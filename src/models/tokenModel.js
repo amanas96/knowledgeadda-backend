@@ -7,15 +7,13 @@ const tokenSchema = new mongoose.Schema({
     ref: "User",
   },
   token: {
-    // This field stores the long token string
     type: String,
     required: true,
   },
   type: {
-    // This field stores the type
     type: String,
     required: true,
-    enum: ["refresh", "reset"], // <-- The enum belongs here
+    enum: ["refresh", "reset"],
   },
   expiresAt: {
     type: Date,

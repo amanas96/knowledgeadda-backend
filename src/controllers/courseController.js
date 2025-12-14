@@ -2,8 +2,10 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Course from "../models/courseModel.js";
 import Content from "../models/contentModel.js";
+import WatchHistory from "../models/watchHistoryModel.js";
 import Quiz from "../models/quiz.js";
 import Question from "../models/question.js";
+import { uploadOnCloudinary } from "../../utils/cloudinary.js";
 
 // ===============================
 // @desc    Get all courses
@@ -56,6 +58,7 @@ export const createCourse = asyncHandler(async (req, res) => {
     description,
     thumbnailUrl,
     tags: tags || [],
+    createdBy: req.user._id,
   });
 
   res.status(201).json(course);
@@ -183,9 +186,13 @@ export const getCourseContent = asyncHandler(async (req, res) => {
 // @route   POST /api/v1/courses/:courseId/content
 // @access  Private/Admin
 // ===============================
+const ALLOWED_TYPES = ["video", "pdf", "notes", "link"];
 export const addContentToCourse = asyncHandler(async (req, res) => {
   const { courseId } = req.params;
-  const { title, contentType, contentUrl, isFree } = req.body;
+  const { title, contentType, isFree } = req.body;
+
+  console.log("📥 REQUEST BODY:", req.body);
+  console.log("📁 REQUEST FILE:", req.file);
 
   if (!mongoose.Types.ObjectId.isValid(courseId)) {
     res.status(400);
@@ -198,20 +205,80 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
     throw new Error("Course not found");
   }
 
-  if (!title || !contentType || !contentUrl) {
+  if (!title || !contentType) {
     res.status(400);
-    throw new Error("Please provide title, contentType, and contentUrl");
+    throw new Error("Please provide title, contentType");
   }
+
+  if (!ALLOWED_TYPES.includes(contentType)) {
+    res.status(400);
+    throw new Error(
+      `Invalid contentType. Allowed: ${ALLOWED_TYPES.join(", ")}`
+    );
+  }
+
+  let contentUrl = "";
+  let publicId = "";
+  let videoDuration = 0;
+
+  if (req.file) {
+    // FILE UPLOAD
+    console.log("🎥 Processing FILE upload");
+    const localFilePath = req.file.path;
+    const folder = `knowledgeadda/${contentType}`;
+
+    const uploadResponse = await uploadOnCloudinary(localFilePath, folder);
+    console.log("🔵 CLOUDINARY RESPONSE:", uploadResponse);
+
+    if (!uploadResponse) {
+      res.status(500);
+      throw new Error("Cloudinary upload failed");
+    }
+
+    contentUrl = uploadResponse.secure_url;
+    publicId = uploadResponse.public_id;
+    videoDuration = uploadResponse.duration || 0;
+
+    console.log("✅ Cloudinary URL set to:", contentUrl);
+  } else if (req.body.contentUrl) {
+    // DIRECT LINK
+    console.log("🔗 Processing DIRECT LINK");
+    contentUrl = req.body.contentUrl;
+    publicId = "";
+    videoDuration = 0;
+
+    console.log("✅ Direct URL set to:", contentUrl);
+  } else {
+    res.status(400);
+    throw new Error("No content file or URL provided");
+  }
+
+  console.log("💾 SAVING TO DATABASE:", {
+    title,
+    contentType,
+    contentUrl,
+    publicId,
+    videoDuration,
+    isFree: isFree === "true" || isFree === true,
+  });
 
   const content = await Content.create({
     title,
     course: courseId,
     contentType,
     contentUrl,
-    isFree: isFree || false,
+    publicId,
+    videoDuration,
+    isFree: isFree === "true" || isFree === true,
+    createdBy: req.user._id,
   });
 
-  res.status(201).json(content);
+  console.log("✅ CONTENT CREATED:", content);
+
+  res.status(201).json({
+    message: "Content added successfully",
+    content,
+  });
 });
 
 // ===============================
@@ -244,6 +311,23 @@ export const getSingleContentItem = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Subscription required to access this content");
   }
+
+  await WatchHistory.findOneAndUpdate(
+    {
+      user: req.user._id,
+      content: contentId,
+    },
+    {
+      user: req.user._id,
+      content: contentId,
+      course: courseId,
+      lastWatchedAt: new Date(),
+    },
+    {
+      upsert: true,
+      new: true,
+    }
+  );
 
   res.json(content);
 });

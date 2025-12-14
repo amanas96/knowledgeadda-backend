@@ -7,7 +7,6 @@ import {
   checkMockStatus,
   verifyMockPayment,
 } from "../controllers/subscriptionController.js";
-import { checkSubscription } from "../middleware/subscriptionMiddleware.js";
 
 // @route   GET /api/v1/subscriptions
 // @desc    Get all subscription plans (public)

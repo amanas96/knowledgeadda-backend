@@ -1,19 +1,16 @@
-// import express from "express";
-// import { protect } from "../middleware/authMiddleware.js";
-// import User from "../models/user.js";
+import express from "express";
+import { protect } from "../middleware/authMiddleware.js";
+import User from "../models/user.js";
+import {
+  getUserProfile,
+  updateUserProfile,
+} from "../controllers/authController.js";
 
-// const router = express.Router();
+const router = express.Router();
 
-// router.get("/me", protect, async (req, res) => {
-//   try {
-//     const user = await User.findById(req.user.id).select("-password");
-//     if (!user) {
-//       return res.status(404).json({ msg: "User not found" });
-//     }
-//     res.json(user);
-//   } catch (err) {
-//     console.error(err.message);
-//     res.status(500).send("Server Error");
-//   }
-// });
-// export default router;
+router
+  .route("/me")
+  .get(protect, getUserProfile)
+  .put(protect, updateUserProfile);
+
+export default router;

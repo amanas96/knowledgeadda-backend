@@ -1,110 +1,3 @@
-// import User from "../models/user.js";
-// import bcrypt from "bcryptjs";
-// import jwt from "jsonwebtoken";
-// // const { validationResult } = require("express-validator");
-// import { validationResult } from "express-validator";
-
-// // Register a new user
-
-// export const registerUser = async (req, res) => {
-//   const errors = validationResult(req);
-//   if (!errors.isEmpty()) {
-//     return res.status(400).json({ errors: errors.array() });
-//   }
-
-//   const { name, email, password } = req.body;
-
-//   try {
-//     let user = await User.findOne({ email });
-//     if (user) {
-//       return res.status(400).json({ msg: "User already exists" });
-//     }
-//     //// new user Instances
-//     user = new User({
-//       name,
-//       email,
-//       password,
-//     });
-
-//     // const salt = await bcrypt.genSalt(10);
-//     // user.password = await bcrypt.hash(password, salt);
-
-//     console.log("Registering User:", {
-//       email: user.email,
-//       password: user.password,
-//     });
-//     await user.save();
-
-//     const payload = {
-//       user: { id: user.id },
-//     };
-//     jwt.sign(
-//       payload,
-//       process.env.JWT_SECRET,
-//       { expiresIn: "5h" },
-//       (err, token) => {
-//         if (err) throw err;
-//         res.json({ token });
-//       }
-//     );
-//   } catch (err) {
-//     console.error(err.message);
-//     res.status(500).send("Server error");
-//   }
-// };
-
-// /// login user
-
-// export const loginUser = async (req, res) => {
-//   const errors = validationResult(req);
-//   if (!errors.isEmpty()) {
-//     return res.status(400).json({ errors: errors.array() });
-//   }
-
-//   const { email, password } = req.body;
-//   try {
-//     console.log(`LOGIN ATTEMPT: Received login request for: ${email}`);
-//     let user = await User.findOne({
-//       email,
-//     });
-//     if (!user) {
-//       console.log("LOGIN ATTEMPT: User not found for email:", email);
-//       return res.status(400).json({ msg: "Invalid credentials" });
-//     }
-//     console.log("LOGIN ATTEMPT: Found user. Comparing passwords...");
-//     console.log("Plain-text password from Postman:", password);
-//     console.log("Hashed password from DB:", user.password);
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     console.log("LOGIN ATTEMPT: Password match result:", isMatch);
-//     if (!isMatch) {
-//       return res.status(400).json({ msg: "Invalid credentials" });
-//     }
-//     const payload = {
-//       user: { id: user.id },
-//     };
-//     jwt.sign(
-//       payload,
-//       process.env.JWT_SECRET,
-//       { expiresIn: "5h" },
-//       (err, token) => {
-//         if (err) throw err;
-//         res.json({ token });
-//       }
-//     );
-//   } catch (err) {
-//     console.error(err.message);
-//     res.status(500).send("Server error");
-//   }
-// };
-
-// // @desc    Get user profile
-// // @route   GET /api/auth/profile
-// // @access  Private
-// export const getUserProfile = asyncHandler(async (req, res) => {
-//   // req.user is already attached by the 'protect' middleware
-//   res.json(req.user);
-// });
-
 import User from "../models/user.js";
 import Token from "../models/tokenModel.js";
 import asyncHandler from "express-async-handler";
@@ -116,60 +9,68 @@ import {
 } from "../../utils/generateToken.js";
 import { sendPasswordResetEmail } from "../../utils/sendEmail.js";
 import jwt from "jsonwebtoken";
-import UserSubscription from "../models/userSubscription.js";
 import { getSubscriptionStatus } from "../../utils/getSubscriptionStatus.js";
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
 // @access  Public
 export const registerUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  const { name, email, password } = req.body;
-  const userExists = await User.findOne({ email });
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    const { name, email, password } = req.body;
 
-  if (userExists) {
-    return res.status(400).json({ message: "User already exists" });
-  }
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ message: "User already exists" });
+    }
 
-  const user = new User({
-    name,
-    email,
-    password,
-    isAdmin: email === "amanasadmin@gmail.com" ? true : false,
-  });
-  await user.save(); // pre('save') hook will hash password
-
-  if (user) {
-    // 1. Create tokens
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
-
-    // 2. Save Refresh Token to database
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await Token.create({
-      userId: user._id,
-      token: refreshToken,
-      type: "refresh",
-      expiresAt,
+    const user = new User({
+      name,
+      email,
+      password,
+      isAdmin: email === "amanasadmin@gmail.com" ? true : false,
     });
+    await user.save();
 
-    // 3. Send response
-    res.status(201).json({
-      accessToken,
-      refreshToken,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-      },
-    });
-  } else {
-    res.status(500);
-    throw new Error("Invalid user data");
+    if (user) {
+      // 1. Create tokens
+      const accessToken = generateAccessToken(user);
+      const refreshToken = generateRefreshToken(user._id);
+
+      // 2. Save Refresh Token to database
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      await Token.create({
+        userId: user._id,
+        token: refreshToken,
+        type: "refresh",
+        expiresAt,
+      });
+
+      // 3. Send response
+      res.status(201).json({
+        accessToken,
+        refreshToken,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          isAdmin: user.isAdmin,
+        },
+      });
+    } else {
+      res.status(500);
+      throw new Error("Invalid user data");
+    }
+  } catch (err) {
+    if (err.name === "ValidationError") {
+      return res.status(400).json({ message: err.message });
+    }
+
+    console.error(err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 });
 
@@ -191,7 +92,7 @@ export const loginUser = asyncHandler(async (req, res) => {
   }
 
   // 1. Create tokens
-  const accessToken = generateAccessToken(user._id);
+  const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user._id);
 
   // 2. Save Refresh Token to database
@@ -245,6 +146,19 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
   // 2. Verify the token
   try {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    if (tokenDoc.userId.toString() !== decoded.id) {
+      console.error("⚠️ Refresh Token integrity failure", {
+        storedUser: tokenDoc.userId.toString(),
+        tokenUser: decoded.id,
+      });
+
+      await Token.deleteOne({ _id: tokenDoc._id });
+
+      return res.status(403).json({
+        message: "Token integrity error — refresh token invalidated",
+      });
+    }
     const user = await User.findById(decoded.id).select("-password");
 
     if (!user) {
@@ -254,8 +168,8 @@ export const refreshAccessToken = asyncHandler(async (req, res) => {
     const isSubscribed = await getSubscriptionStatus(user._id);
 
     // 3. Issue new access token
-    const accessToken = generateAccessToken(user._id);
-    res.json({
+    const accessToken = generateAccessToken(user);
+    res.status(200).json({
       accessToken,
       user: {
         _id: user._id,
@@ -313,11 +227,103 @@ export const logoutAllDevices = asyncHandler(async (req, res) => {
 // @route   GET /api/auth/profile
 // @access  Private
 export const getUserProfile = asyncHandler(async (req, res) => {
-  const userObject = req.user.toObject();
-  const isSubscribed = await getSubscriptionStatus(req.user._id);
-  userObject.isSubscribed = isSubscribed;
+  const userObject = { ...req.user };
 
-  res.json(userObject);
+  const activeSubscription = await UserSubscription.findOne({
+    user: req.user._id,
+    status: "active",
+    endDate: { $gt: new Date() },
+  }).populate("plan", "name price durationInDays");
+
+  // 3. Attach details
+  if (activeSubscription) {
+    userObject.isSubscribed = true;
+    userObject.subscription = {
+      planName: activeSubscription.plan.name,
+      startDate: activeSubscription.startDate,
+      endDate: activeSubscription.endDate,
+      status: activeSubscription.status,
+    };
+  } else {
+    userObject.isSubscribed = false;
+    userObject.subscription = null;
+  }
+
+  // ===============================
+  // ✅ 3. ADMIN DASHBOARD DATA
+  // ===============================
+  if (req.user.role === "admin") {
+    const myCourses = await Course.find({
+      createdBy: req.user._id,
+    }).sort({ createdAt: -1 });
+
+    const myContent = await Content.find({
+      createdBy: req.user._id,
+    })
+      .populate("course", "title")
+      .sort({ createdAt: -1 });
+
+    return res.json({
+      role: "admin",
+      user: userObject,
+      stats: {
+        totalCourses: myCourses.length,
+        totalContent: myContent.length,
+      },
+      myCourses,
+      myContent,
+    });
+  }
+
+  const watchHistory = await WatchHistory.find({
+    user: req.user._id,
+  })
+    .populate("content", "title contentType contentUrl")
+    .populate("course", "title thumbnailUrl")
+    .sort({ lastWatchedAt: -1 });
+
+  const totalWatchTime = watchHistory.reduce(
+    (sum, entry) => sum + (entry.watchTime || 0),
+    0
+  );
+
+  const totalWatchedContents = watchHistory.length;
+
+  const quizAttempts = await QuizAttempt.find({
+    user: req.user._id,
+    status: "completed",
+  });
+
+  const quizzesCompleted = quizAttempts.length;
+
+  const totalQuizScore = quizAttempts.reduce(
+    (sum, attempt) => sum + attempt.score,
+    0
+  );
+
+  const avgQuizPercentage =
+    quizAttempts.length > 0
+      ? Math.round(
+          quizAttempts.reduce((sum, q) => sum + q.percentage, 0) /
+            quizAttempts.length
+        )
+      : 0;
+
+  return res.json({
+    role: "student",
+    user: userObject,
+
+    stats: {
+      totalWatchTime,
+      totalWatchedContents,
+      quizzesCompleted,
+      totalQuizScore,
+      avgQuizPercentage,
+    },
+
+    watchHistory,
+    quizAttempts,
+  });
 });
 
 // --- RESET PASSWORD ---
@@ -389,11 +395,60 @@ export const resetPassword = asyncHandler(async (req, res) => {
   }
 
   // 4. Set new password
-  user.password = password; // The pre('save') hook will hash it
+  user.password = password;
   await user.save();
 
   // 5. Delete the used reset token
   await Token.deleteOne({ _id: tokenDoc._id });
 
   res.json({ message: "Password reset successfully" });
+});
+
+// @desc    Update user profile
+// @route   PUT /api/auth/profile
+// @access  Private
+export const updateUserProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  const { phone, address, city, state, pinCode, landmark } = req.body;
+
+  // Validate (optional but recommended)
+  // if (!phone || !address || !city || !state || !pinCode) {
+  //   return res.status(400).json({
+  //     message: "All required fields must be filled.",
+  //   });
+  // }
+
+  // Find user
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  // Update fields
+  // This allows partial updates (e.g. just updating city)
+  if (req.body.phone) user.phone = req.body.phone;
+  if (req.body.address) user.address = req.body.address;
+  if (req.body.city) user.city = req.body.city;
+  if (req.body.state) user.state = req.body.state;
+  if (req.body.pinCode) user.pinCode = req.body.pinCode;
+  if (req.body.landmark) user.landmark = req.body.landmark;
+  if (req.body.name) user.name = req.body.name;
+
+  // Save to DB
+  const updatedUser = await user.save();
+
+  res.json({
+    message: "Profile updated successfully",
+    updatedProfile: {
+      name: updatedUser.name,
+      phone: updatedUser.phone,
+      address: updatedUser.address,
+      city: updatedUser.city,
+      state: updatedUser.state,
+      pinCode: updatedUser.pinCode,
+      landmark: updatedUser.landmark,
+    },
+  });
 });

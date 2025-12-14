@@ -27,6 +27,11 @@ const contentSchema = new mongoose.Schema(
       type: Boolean,
       default: false, // By default, content is NOT free
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
   },
   {
     timestamps: true,

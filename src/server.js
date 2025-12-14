@@ -1,7 +1,9 @@
+import { config } from "dotenv";
+config();
+
 import express from "express";
 import morgan from "morgan";
 import cors from "cors";
-import { config } from "dotenv";
 
 // --- Import Routers ---
 // import mainRouter from "./router/route.js";
@@ -11,16 +13,19 @@ import courseRouter from "./routes/courseRoutes.js";
 import subscriptionRoutes from "./routes/subscriptionRoutes.js";
 import quizRouter from "./routes/quizRoutes.js";
 import connectDB from "./config/db.js";
+import errorHandler from "./middleware/errorMiddleware.js";
+import contactRouter from "./routes/contactRoute.js";
+import profileRouter from "./routes/profile.js";
 
 // Load .env variables
-config();
 
 const app = express();
 
 // --- App Middleware ---
 app.use(morgan("tiny"));
 app.use(cors());
-app.use(express.json()); // Body parser for JSON
+app.use(express.json());
+app.use(errorHandler);
 
 // --- App Port ---
 const port = process.env.PORT || 8080;
@@ -31,6 +36,8 @@ app.use("/api/auth", authRouter);
 app.use("/api/v1/courses", courseRouter);
 app.use("/api/v1/subscriptions", subscriptionRoutes);
 app.use("/api/v1/quizzes", quizRouter);
+app.use("/api/contact", contactRouter);
+app.use("/api/profile", profileRouter);
 
 // Root route
 app.get("/", (req, res) => {
@@ -55,7 +62,7 @@ connectDB()
   })
   .catch((err) => {
     console.log("Invalid Database connection");
-    console.error(err); // Log the actual error
+    console.error(err);
   });
 app.use((err, req, res, next) => {
   console.error(err.stack);

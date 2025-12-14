@@ -3,6 +3,8 @@ const router = express.Router();
 
 import { protect, admin } from "../middleware/authMiddleware.js";
 import { checkSubscription } from "../middleware/subscriptionMiddleware.js";
+import upload from "../middleware/multerMiddleware.js";
+import { uploadOnCloudinary } from "../../utils/cloudinary.js";
 
 import {
   getAllCourses,
@@ -37,7 +39,7 @@ router
  */
 router
   .route("/:courseId/content")
-  .post(protect, admin, addContentToCourse)
+  .post(protect, admin, upload.single("contentFile"), addContentToCourse)
   .get(protect, checkSubscription, getCourseContent);
 
 /**

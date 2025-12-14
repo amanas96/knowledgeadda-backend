@@ -74,10 +74,18 @@ export const addQuestionToQuiz = asyncHandler(async (req, res) => {
   const quiz = await Quiz.findById(quizId);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  if (!text || !Array.isArray(options) || options.length < 2) {
+  if (!text || !text.trim()) {
+    return res.status(400).json({ message: "Question text is required." });
+  }
+
+  if (!Array.isArray(options) || options.length < 2) {
     return res
       .status(400)
-      .json({ message: "Question must have text and at least 2 options." });
+      .json({ message: "Question must have at least 2 options." });
+  }
+  const uniqueOptions = new Set(options);
+  if (uniqueOptions.size !== options.length) {
+    return res.status(400).json({ message: "Options must be unique." });
   }
 
   if (!correctAnswer || !options.includes(correctAnswer)) {
@@ -115,7 +123,7 @@ export const getAllQuizzes = asyncHandler(async (req, res) => {
    Get Quizzes for a Course (Subscribed)
 ============================================================ */
 export const getQuizzesForCourse = asyncHandler(async (req, res) => {
-  if (!req.user.isSubscribed) {
+  if (!req.user.isAdmin && !req.user.isSubscribed) {
     return res
       .status(403)
       .json({ message: "Subscription required to access quizzes." });
@@ -280,4 +288,88 @@ export const reviewQuiz = asyncHandler(async (req, res) => {
       marks: ans.question.marks,
     })),
   });
+});
+
+// @desc    Get single quiz by ID
+// @route   GET /api/v1/quizzes/:quizId
+// @access  Private/Admin
+export const getQuizById = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
+  console.log("Getting quiz by ID:", quizId);
+
+  if (!mongoose.Types.ObjectId.isValid(quizId)) {
+    return res.status(400).json({ message: "Invalid Quiz ID" });
+  }
+
+  const quiz = await Quiz.findById(quizId)
+    .populate("course", "title description") // Include course info
+    .lean();
+
+  if (!quiz) {
+    return res.status(404).json({ message: "Quiz not found" });
+  }
+  console.log("Quiz found:", quiz);
+  res.json(quiz);
+});
+
+////////////////////////// update Quiz
+
+export const updateQuiz = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
+  const updates = req.body;
+
+  const quiz = await Quiz.findById(quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  Object.assign(quiz, updates);
+
+  await quiz.save();
+  res.json({ message: "Quiz updated", quiz });
+});
+
+///////////////////////////// delete Quiz
+
+export const deleteQuiz = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
+
+  const quiz = await Quiz.findById(quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  await Question.deleteMany({ quiz: quizId });
+  await quiz.deleteOne();
+
+  res.json({ message: "Quiz deleted successfully" });
+});
+
+////////////////// update question
+
+export const updateQuestion = asyncHandler(async (req, res) => {
+  const { quizId, questionId } = req.params;
+  const updates = req.body;
+
+  const question = await Question.findOne({ _id: questionId, quiz: quizId });
+  if (!question) return res.status(404).json({ message: "Question not found" });
+
+  // If options updated, ensure correctAnswer is still valid
+  if (updates.options && !updates.options.includes(updates.correctAnswer)) {
+    return res.status(400).json({
+      message: "Correct answer must be one of the updated options",
+    });
+  }
+
+  Object.assign(question, updates);
+  await question.save();
+
+  res.json({ message: "Question updated", question });
+});
+
+/////////////////// delete question
+export const deleteQuestion = asyncHandler(async (req, res) => {
+  const { quizId, questionId } = req.params;
+
+  const question = await Question.findOne({ _id: questionId, quiz: quizId });
+  if (!question) return res.status(404).json({ message: "Question not found" });
+
+  await question.deleteOne();
+  res.json({ message: "Question deleted successfully" });
 });
