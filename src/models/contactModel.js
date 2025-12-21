@@ -14,15 +14,26 @@ const contactSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    message: {
-      type: String,
-      required: true,
-    },
+
     status: {
       type: String,
-      enum: ["open", "in progress", "closed"],
+      enum: ["open", "replied", "closed"],
       default: "open",
     },
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    messages: [
+      {
+        sender: { type: String, enum: ["user", "admin"] },
+        text: { type: String },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    repliedAt: { type: Date, default: null },
+    closedAt: { type: Date, default: null },
   },
   {
     timestamps: true,
