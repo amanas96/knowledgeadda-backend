@@ -21,10 +21,10 @@ const registerValidation = [
     .isLength({ min: 6 })
     .withMessage("Password must be 6 or more characters long")
     .matches(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{6,12}$/
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{6,12}$/,
     )
     .withMessage(
-      "Password must include at least one uppercase, lowercase, number, and special character"
+      "Password must include at least one uppercase, lowercase, number, and special character",
     ),
 ];
 
@@ -46,10 +46,10 @@ const resetPasswordValidation = [
     .isLength({ min: 6 })
     .withMessage("Password must be 6 or more characters long")
     .matches(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{6,12}$/
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{6,12}$/,
     )
     .withMessage(
-      "Password must include at least one uppercase, lowercase, number, and special character"
+      "Password must include at least one uppercase, lowercase, number, and special character",
     ),
 ];
 
@@ -60,9 +60,6 @@ router.post("/refresh", tokenBodyValidation, refreshAccessToken);
 router.post("/logout", tokenBodyValidation, logoutUser);
 router.post("/forgot-password", emailValidation, forgotPassword);
 router.post("/reset-password/:token", resetPasswordValidation, resetPassword);
-
-// Profile route doesn't need body validation
-
 router.post("/logout-all", protect, logoutAllDevices);
 
 export default router;

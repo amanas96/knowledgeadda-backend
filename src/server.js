@@ -16,6 +16,7 @@ import connectDB from "./config/db.js";
 import errorHandler from "./middleware/errorMiddleware.js";
 import contactRouter from "./routes/contactRoute.js";
 import profileRouter from "./routes/profile.js";
+import adminRouter from "./routes/admin.js";
 
 // Load .env variables
 
@@ -38,6 +39,7 @@ app.use("/api/v1/subscriptions", subscriptionRoutes);
 app.use("/api/v1/quizzes", quizRouter);
 app.use("/api/contact", contactRouter);
 app.use("/api/profile", profileRouter);
+app.use("/api/admin", adminRouter);
 
 // Root route
 app.get("/", (req, res) => {

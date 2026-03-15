@@ -1,28 +1,37 @@
 import express from "express";
-import { check } from "express-validator";
 import {
-  getAllContacts,
-  submitContactForm,
-  replyToContact,
-  updateContactStatus,
-  deleteContact,
+  createTicket,
+  adminGetAllTickets,
+  userGetMyTickets,
+  adminReplyToTicket,
+  userReplyToTicket,
+  closeTicket,
+  reopenTicket,
 } from "../controllers/contactController.js";
+
 import { protect, admin } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-const contactValidation = [
-  check("name", "Name is required").not().isEmpty(),
-  check("email", "Please include a valid email").isEmail(),
-  check("subject", "Subject is required").not().isEmpty(),
-  check("message", "Message is required").not().isEmpty(),
-];
+// USER creates ticket
+router.post("/", protect, createTicket);
 
-router.post("/", contactValidation, submitContactForm);
+// USER sees own tickets
+router.get("/my", protect, userGetMyTickets);
 
-router.get("/", protect, admin, getAllContacts);
-router.post("/reply/:id", protect, admin, replyToContact);
-router.put("/status/:id", protect, admin, updateContactStatus);
-router.delete("/:id", protect, admin, deleteContact);
+// ADMIN gets all tickets
+//router.get("/", protect, admin, adminGetAllTickets);
+
+// ADMIN reply
+//router.post("/reply/:id", protect, admin, adminReplyToTicket);
+
+// USER reply
+router.post("/reply/user/:id", protect, userReplyToTicket);
+
+// CLOSE ticket
+//router.put("/close/:id", protect, admin, closeTicket);
+
+// REOPEN ticket
+router.put("/reopen/:id", protect, reopenTicket);
 
 export default router;

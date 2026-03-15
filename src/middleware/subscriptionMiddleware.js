@@ -2,7 +2,6 @@ import asyncHandler from "express-async-handler";
 import UserSubscription from "../models/userSubscription.js";
 
 export const checkSubscription = asyncHandler(async (req, res, next) => {
-  // We need 'protect' to run first to get req.user
   if (!req.user) {
     res.status(401);
     throw new Error("Not authorized, no user");

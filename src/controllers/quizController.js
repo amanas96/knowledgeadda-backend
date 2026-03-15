@@ -48,6 +48,7 @@ export const createQuiz = asyncHandler(async (req, res) => {
       isPublished: true,
       isPremium: isPremium ?? true,
       category: category || "General",
+      createdBy: req.user._id,
     });
 
     res.status(201).json(quiz);
@@ -112,11 +113,28 @@ export const addQuestionToQuiz = asyncHandler(async (req, res) => {
    @access  Public
 ============================================================ */
 export const getAllQuizzes = asyncHandler(async (req, res) => {
-  const quizzes = await Quiz.find()
+  const limit = req.query.limit ? Number(req.query.limit) : 0;
+  let query = Quiz.find()
     .sort({ createdAt: -1 })
     .select("title course category isPremium timeLimit totalMarks createdAt");
 
-  res.json(quizzes);
+  console.log("Limit:", req.query.limit);
+
+  if (limit) {
+    query = query.limit(limit);
+  }
+
+  const quizzes = await query.lean();
+
+  // ✅ Add totalQuestions to each quiz in parallel
+  const quizzesWithCount = await Promise.all(
+    quizzes.map(async (quiz) => {
+      const totalQuestions = await Question.countDocuments({ quiz: quiz._id });
+      return { ...quiz, totalQuestions };
+    }),
+  );
+
+  res.json(quizzesWithCount);
 });
 
 /* ============================================================
@@ -162,7 +180,7 @@ export const getQuizQuestions = asyncHandler(async (req, res) => {
     .select("-correctAnswer -explanation")
     .sort({ _id: 1 });
 
-  res.json({ quizTitle: quiz.title, questions });
+  res.json({ quizTitle: quiz.title, timeLimit: quiz.timeLimit, questions });
 });
 
 /* ============================================================
@@ -295,21 +313,22 @@ export const reviewQuiz = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 export const getQuizById = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
-  console.log("Getting quiz by ID:", quizId);
 
   if (!mongoose.Types.ObjectId.isValid(quizId)) {
     return res.status(400).json({ message: "Invalid Quiz ID" });
   }
 
   const quiz = await Quiz.findById(quizId)
-    .populate("course", "title description") // Include course info
+    .populate("course", "title description")
     .lean();
 
   if (!quiz) {
     return res.status(404).json({ message: "Quiz not found" });
   }
-  console.log("Quiz found:", quiz);
-  res.json(quiz);
+
+  const totalQuestions = await Question.countDocuments({ quiz: quizId });
+
+  res.json({ ...quiz, totalQuestions });
 });
 
 ////////////////////////// update Quiz

@@ -193,7 +193,6 @@ export const verifyMockPayment = asyncHandler(async (req, res) => {
   endDate.setDate(startDate.getDate() + plan.durationInDays);
 
   const subscription = new UserSubscription({
-    // <-- This line was crashing
     user: user._id,
     plan: plan._id,
     startDate,
@@ -209,4 +208,14 @@ export const verifyMockPayment = asyncHandler(async (req, res) => {
     message: "Mock subscription activated!",
     subscription,
   });
+});
+
+export const getMyTransactions = asyncHandler(async (req, res) => {
+  const user = req.user;
+
+  const transactions = await UserSubscription.find({ user: user._id })
+    .populate("plan", "name price durationInDays")
+    .sort({ createdAt: -1 });
+
+  res.json(transactions);
 });
