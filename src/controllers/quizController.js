@@ -113,20 +113,17 @@ export const addQuestionToQuiz = asyncHandler(async (req, res) => {
    @access  Public
 ============================================================ */
 export const getAllQuizzes = asyncHandler(async (req, res) => {
-  const limit = req.query.limit ? Number(req.query.limit) : 0;
+  const limit = req.query.limit ? Number(req.query.limit) : 6;
   let query = Quiz.find()
     .sort({ createdAt: -1 })
     .select("title course category isPremium timeLimit totalMarks createdAt");
 
-  console.log("Limit:", req.query.limit);
-
-  if (limit) {
+  if (limit > 0) {
     query = query.limit(limit);
   }
-
+  console.log("Fetching quizzes with limit:", limit);
   const quizzes = await query.lean();
 
-  // ✅ Add totalQuestions to each quiz in parallel
   const quizzesWithCount = await Promise.all(
     quizzes.map(async (quiz) => {
       const totalQuestions = await Question.countDocuments({ quiz: quiz._id });
@@ -188,63 +185,81 @@ export const getQuizQuestions = asyncHandler(async (req, res) => {
 ============================================================ */
 export const submitQuiz = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
-  const { answers } = req.body;
+  const { answers, timeTaken = 0 } = req.body;
 
+  // 1. Validate quiz ID
   if (!mongoose.Types.ObjectId.isValid(quizId)) {
     return res.status(400).json({ message: "Invalid Quiz ID" });
   }
 
+  // 2. Check quiz exists
   const quiz = await Quiz.findById(quizId);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  // ⭐ Premium check
+  // 3. Premium check
   if (quiz.isPremium && !req.user.isSubscribed) {
     return res
       .status(403)
       .json({ message: "Premium quiz. Subscription required." });
   }
 
+  // 4. Check questions exist
   const allQuestions = await Question.find({ quiz: quizId });
-  if (allQuestions.length === 0) {
+  if (!allQuestions.length) {
     return res.status(400).json({ message: "No questions in this quiz." });
   }
 
-  const previousAttempt = await QuizAttempt.findOne({
-    user: req.user._id,
-    quiz: quizId,
-  });
-
-  if (previousAttempt) {
-    return res
-      .status(400)
-      .json({ message: "You have already attempted this quiz." });
-  }
-
+  // 5. Evaluate answers FIRST (needed for retry response too)
   let score = 0;
-  let detailedResults = [];
-
-  for (const q of allQuestions) {
-    const userAnswer = answers.find((a) => a.questionId === q._id.toString());
-
+  const detailedResults = allQuestions.map((q) => {
+    const userAnswer = answers.find(
+      (a) => String(a.questionId) === String(q._id),
+    );
     const isCorrect =
       userAnswer &&
       String(userAnswer.userAnswer).trim() === String(q.correctAnswer).trim();
 
     if (isCorrect) score += q.marks || 1;
 
-    detailedResults.push({
+    return {
       question: q._id,
       userAnswer: userAnswer ? userAnswer.userAnswer : null,
       correctAnswer: q.correctAnswer,
       isCorrect,
+    };
+  });
+
+  // 6. Check previous attempt AFTER evaluation
+  const previousAttempt = await QuizAttempt.findOne({
+    user: req.user._id,
+    quiz: quizId,
+    isRetry: false,
+  });
+
+  // 7. Retry on single-attempt quiz — return score but don't save
+  if (previousAttempt && !quiz.allowMultipleAttempts) {
+    const percentage = Number(
+      Math.min((score / allQuestions.length) * 100, 100).toFixed(2),
+    );
+    return res.json({
+      isRetry: true,
+      score,
+      totalQuestions: allQuestions.length,
+      percentage,
+      answers: detailedResults,
+      message: "Retry attempt — score not saved",
     });
   }
 
+  // 8. Save real attempt
   const attempt = await QuizAttempt.create({
     user: req.user._id,
     quiz: quizId,
     score,
     totalQuestions: allQuestions.length,
+    timeTaken,
+    isRetry: false,
+    status: "completed",
     answers: detailedResults,
   });
 
@@ -391,4 +406,43 @@ export const deleteQuestion = asyncHandler(async (req, res) => {
 
   await question.deleteOne();
   res.json({ message: "Question deleted successfully" });
+});
+
+// GET /api/v1/quizzes/:quizId/attempt-status
+export const getQuizAttemptStatus = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
+
+  // 1. Validate quiz ID (same as submitQuiz)
+  if (!mongoose.Types.ObjectId.isValid(quizId)) {
+    return res.status(400).json({ message: "Invalid Quiz ID" });
+  }
+
+  // 2. Check quiz exists
+  const quiz = await Quiz.findById(quizId).select(
+    "allowMultipleAttempts isPremium title",
+  );
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  // 3. Premium check (same as submitQuiz)
+  if (quiz.isPremium && !req.user.isSubscribed) {
+    return res
+      .status(403)
+      .json({ message: "Premium quiz. Subscription required." });
+  }
+
+  // 4. Find previous real attempt (isRetry: false — same logic as submitQuiz)
+  const previousAttempt = await QuizAttempt.findOne({
+    user: req.user._id,
+    quiz: quizId,
+    isRetry: false,
+  })
+    .sort({ createdAt: -1 })
+    .select("score totalQuestions percentage timeTaken createdAt")
+    .lean();
+
+  res.json({
+    hasAttempted: !!previousAttempt,
+    allowMultipleAttempts: quiz.allowMultipleAttempts,
+    lastAttempt: previousAttempt || null,
+  });
 });

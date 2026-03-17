@@ -22,11 +22,19 @@ const quizAttemptSchema = new mongoose.Schema(
     },
     percentage: {
       type: Number,
-      default: function () {
-        return this.totalQuestions
-          ? (this.score / this.totalQuestions) * 100
-          : 0;
-      },
+      // default: function () {
+      //   return this.totalQuestions
+      //     ? (this.score / this.totalQuestions) * 100
+      //     : 0;
+      // },
+    },
+    timeTaken: {
+      type: Number, // in seconds
+      default: 0,
+    },
+    isRetry: {
+      type: Boolean,
+      default: false, // true = score not counted, just practice
     },
     status: {
       type: String,
@@ -45,8 +53,21 @@ const quizAttemptSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
+
+quizAttemptSchema.pre("save", function (next) {
+  if (this.totalQuestions > 0) {
+    const rawPercentage = (this.score / this.totalQuestions) * 100;
+    this.percentage = Number(Math.min(rawPercentage, 100).toFixed(2));
+  } else {
+    this.percentage = 0;
+  }
+  next();
+});
+
+quizAttemptSchema.index({ user: 1, quiz: 1 });
+quizAttemptSchema.index({ user: 1, createdAt: -1 });
 
 const QuizAttempt = mongoose.model("QuizAttempt", quizAttemptSchema);
 export default QuizAttempt;

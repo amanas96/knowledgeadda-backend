@@ -94,6 +94,7 @@ import {
   getQuizQuestions,
   submitQuiz,
   reviewQuiz,
+  getQuizAttemptStatus,
 } from "../controllers/quizController.js";
 
 // Public
@@ -103,6 +104,12 @@ router.get("/", getAllQuizzes);
 router.get("/course/:courseId", protect, getQuizzesForCourse);
 router.get("/:quizId", protect, checkSubscription, getQuizById);
 router.get("/:quizId/questions", protect, checkSubscription, getQuizQuestions);
+router.get(
+  "/:quizId/attempt-status",
+  protect,
+  checkSubscription,
+  getQuizAttemptStatus,
+);
 router.post("/:quizId/submit", protect, checkSubscription, submitQuiz);
 router.get("/:quizId/review", protect, checkSubscription, reviewQuiz);
 
