@@ -1,34 +1,54 @@
 import mongoose from "mongoose";
 
-const contactSchema = new mongoose.Schema(
+const messageSchema = new mongoose.Schema(
   {
-    name: {
+    senderType: {
       type: String,
+      enum: ["user", "admin"],
       required: true,
     },
-    email: {
-      type: String,
+    sender: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: "messages.senderType",
       required: true,
     },
-    subject: {
-      type: String,
-      required: true,
-    },
-    message: {
-      type: String,
-      required: true,
-    },
-    status: {
-      type: String,
-      enum: ["open", "in progress", "closed"],
-      default: "open",
-    },
+    text: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
   },
-  {
-    timestamps: true,
-  }
+  { _id: false }
 );
 
-const Contact = mongoose.model("Contact", contactSchema);
+const contactSchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
+    },
 
-export default Contact;
+    name: { type: String },
+    email: { type: String },
+
+    subject: { type: String, required: true },
+
+    messages: [messageSchema],
+
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    status: {
+      type: String,
+      enum: ["open", "replied", "closed"],
+      default: "open",
+    },
+
+    repliedAt: { type: Date, default: null },
+    closedAt: { type: Date, default: null },
+  },
+  { timestamps: true }
+);
+
+export default mongoose.model("Contact", contactSchema);

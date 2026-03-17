@@ -2,6 +2,7 @@ import User from "../models/user.js";
 import Token from "../models/tokenModel.js";
 import asyncHandler from "express-async-handler";
 import { check, validationResult } from "express-validator";
+
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -10,6 +11,11 @@ import {
 import { sendPasswordResetEmail } from "../../utils/sendEmail.js";
 import jwt from "jsonwebtoken";
 import { getSubscriptionStatus } from "../../utils/getSubscriptionStatus.js";
+import UserSubscription from "../models/userSubscription.js";
+import Course from "../models/courseModel.js";
+import Content from "../models/contentModel.js";
+import WatchHistory from "../models/watchHistoryModel.js";
+import QuizAttempt from "../models/quizAttempt.js";
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
@@ -283,8 +289,8 @@ export const getUserProfile = asyncHandler(async (req, res) => {
     .sort({ lastWatchedAt: -1 });
 
   const totalWatchTime = watchHistory.reduce(
-    (sum, entry) => sum + (entry.watchTime || 0),
-    0
+    (sum, entry) => sum + (entry.watchedMinutes || 0),
+    0,
   );
 
   const totalWatchedContents = watchHistory.length;
@@ -298,14 +304,14 @@ export const getUserProfile = asyncHandler(async (req, res) => {
 
   const totalQuizScore = quizAttempts.reduce(
     (sum, attempt) => sum + attempt.score,
-    0
+    0,
   );
 
   const avgQuizPercentage =
     quizAttempts.length > 0
       ? Math.round(
           quizAttempts.reduce((sum, q) => sum + q.percentage, 0) /
-            quizAttempts.length
+            quizAttempts.length,
         )
       : 0;
 

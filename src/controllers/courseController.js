@@ -13,7 +13,13 @@ import { uploadOnCloudinary } from "../../utils/cloudinary.js";
 // @access  Public
 // ===============================
 export const getAllCourses = asyncHandler(async (req, res) => {
-  const courses = await Course.find({});
+  const limit = req.query.limit ? Number(req.query.limit) : 6;
+
+  const courses = await Course.find({})
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+
   res.json(courses);
 });
 
@@ -213,7 +219,7 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
   if (!ALLOWED_TYPES.includes(contentType)) {
     res.status(400);
     throw new Error(
-      `Invalid contentType. Allowed: ${ALLOWED_TYPES.join(", ")}`
+      `Invalid contentType. Allowed: ${ALLOWED_TYPES.join(", ")}`,
     );
   }
 
@@ -326,7 +332,7 @@ export const getSingleContentItem = asyncHandler(async (req, res) => {
     {
       upsert: true,
       new: true,
-    }
+    },
   );
 
   res.json(content);
