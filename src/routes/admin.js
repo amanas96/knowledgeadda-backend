@@ -67,7 +67,9 @@ router.delete("/quizzes/:quizId/questions/:questionId", deleteQuestion);
 router.get(
   "/users",
   asyncHandler(async (req, res) => {
-    const users = await User.find().select("-password").sort({ date: -1 });
+    const users = await User.find({ isAdmin: false })
+      .select("-password")
+      .sort({ date: -1 });
     res.json(users);
   }),
 );

@@ -7,6 +7,16 @@ import Quiz from "../models/quiz.js";
 import Question from "../models/question.js";
 import { uploadOnCloudinary } from "../../utils/cloudinary.js";
 
+// helper function
+// helper at top of controller
+const findCourseBySlugOrId = async (slugOrId) => {
+  if (mongoose.Types.ObjectId.isValid(slugOrId)) {
+    const course = await Course.findById(slugOrId);
+    if (course) return course;
+  }
+  return await Course.findOne({ slug: slugOrId });
+};
+
 // ===============================
 // @desc    Get all courses
 // @route   GET /api/v1/courses
@@ -29,20 +39,11 @@ export const getAllCourses = asyncHandler(async (req, res) => {
 // @access  Private
 // ===============================
 export const getCourseById = asyncHandler(async (req, res) => {
-  const { courseId } = req.params;
-
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid course ID");
-  }
-
-  const course = await Course.findById(courseId);
-
+  const course = await findCourseBySlugOrId(req.params.courseId);
   if (!course) {
     res.status(404);
     throw new Error("Course not found");
   }
-
   res.json(course);
 });
 
@@ -76,21 +77,21 @@ export const createCourse = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // ===============================
 export const updateCourse = asyncHandler(async (req, res) => {
-  const { courseId } = req.params;
-
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid course ID");
-  }
-
-  const { title, description, thumbnailUrl, tags } = req.body;
-  const course = await Course.findById(courseId);
-
+  const course = await findCourseBySlugOrId(req.params.courseId);
   if (!course) {
     res.status(404);
     throw new Error("Course not found");
   }
 
+  const { title, description, thumbnailUrl, tags } = req.body;
+  if (title && title !== course.title) {
+    course.slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+  }
   course.title = title || course.title;
   course.description = description || course.description;
   course.thumbnailUrl = thumbnailUrl || course.thumbnailUrl;
@@ -105,41 +106,30 @@ export const updateCourse = asyncHandler(async (req, res) => {
 // @route   DELETE /api/v1/courses/:courseId
 // @access  Private/Admin
 // ===============================
+
 export const deleteCourse = asyncHandler(async (req, res) => {
   const { courseId } = req.params;
-
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid course ID");
-  }
-
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    // Find all quizzes related to this course
-    const quizzes = await Quiz.find({ course: courseId }).session(session);
-    const quizIds = quizzes.map((q) => q._id);
-
-    // Delete all questions for those quizzes
-    if (quizIds.length > 0) {
-      await Question.deleteMany({ quiz: { $in: quizIds } }).session(session);
-    }
-
-    // Delete all quizzes
-    await Quiz.deleteMany({ course: courseId }).session(session);
-
-    // Delete all content (videos, PDFs)
-    await Content.deleteMany({ course: courseId }).session(session);
-
-    // Delete the course itself
-    const course = await Course.findByIdAndDelete(courseId).session(session);
-
+    const course = await findCourseBySlugOrId(courseId);
     if (!course) {
       await session.abortTransaction();
       res.status(404);
       throw new Error("Course not found");
     }
+
+    const quizzes = await Quiz.find({ course: course._id }).session(session);
+    const quizIds = quizzes.map((q) => q._id);
+
+    if (quizIds.length > 0) {
+      await Question.deleteMany({ quiz: { $in: quizIds } }).session(session);
+    }
+
+    await Quiz.deleteMany({ course: course._id }).session(session);
+    await Content.deleteMany({ course: course._id }).session(session);
+    await Course.findByIdAndDelete(course._id).session(session);
 
     await session.commitTransaction();
     session.endSession();
@@ -160,15 +150,8 @@ export const deleteCourse = asyncHandler(async (req, res) => {
 // @access  Private (Paywall)
 // ===============================
 export const getCourseContent = asyncHandler(async (req, res) => {
-  const { courseId } = req.params;
-
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid course ID");
-  }
-
-  const courseExists = await Course.exists({ _id: courseId });
-  if (!courseExists) {
+  const course = await findCourseBySlugOrId(req.params.courseId);
+  if (!course) {
     res.status(404);
     throw new Error("Course not found");
   }
@@ -176,7 +159,7 @@ export const getCourseContent = asyncHandler(async (req, res) => {
   const isSubscribed = req.user?.isSubscribed || false;
 
   // Get all content for the course
-  const allContent = await Content.find({ course: courseId });
+  const allContent = await Content.find({ course: course._id });
 
   // Add the 'isAccessible' flag
   const contentWithAccess = allContent.map((item) => ({
@@ -197,15 +180,7 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
   const { courseId } = req.params;
   const { title, contentType, isFree } = req.body;
 
-  console.log("📥 REQUEST BODY:", req.body);
-  console.log("📁 REQUEST FILE:", req.file);
-
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid course ID");
-  }
-
-  const course = await Course.findById(courseId);
+  const course = await findCourseBySlugOrId(courseId);
   if (!course) {
     res.status(404);
     throw new Error("Course not found");
@@ -270,7 +245,7 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
 
   const content = await Content.create({
     title,
-    course: courseId,
+    course: course._id,
     contentType,
     contentUrl,
     publicId,
@@ -294,16 +269,13 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
 // ===============================
 export const getSingleContentItem = asyncHandler(async (req, res) => {
   const { courseId, contentId } = req.params;
-
-  if (
-    !mongoose.Types.ObjectId.isValid(courseId) ||
-    !mongoose.Types.ObjectId.isValid(contentId)
-  ) {
-    res.status(400);
-    throw new Error("Invalid IDs");
+  const course = await findCourseBySlugOrId(courseId);
+  if (!course) {
+    res.status(404);
+    throw new Error("Course not found");
   }
 
-  const content = await Content.findOne({ _id: contentId, course: courseId });
+  const content = await Content.findOne({ _id: contentId, course: course._id });
 
   if (!content) {
     res.status(404);
@@ -326,7 +298,7 @@ export const getSingleContentItem = asyncHandler(async (req, res) => {
     {
       user: req.user._id,
       content: contentId,
-      course: courseId,
+      course: course._id,
       lastWatchedAt: new Date(),
     },
     {
@@ -347,16 +319,19 @@ export const deleteContentFromCourse = asyncHandler(async (req, res) => {
   const { courseId, contentId } = req.params;
 
   // Validate IDs
-  if (
-    !mongoose.Types.ObjectId.isValid(courseId) ||
-    !mongoose.Types.ObjectId.isValid(contentId)
-  ) {
+  const course = await findCourseBySlugOrId(courseId);
+  if (!course) {
+    res.status(404);
+    throw new Error("Course not found");
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(contentId)) {
     res.status(400);
-    throw new Error("Invalid course ID or content ID");
+    throw new Error("Invalid content ID");
   }
 
   // Check if content exists
-  const content = await Content.findOne({ _id: contentId, course: courseId });
+  const content = await Content.findOne({ _id: contentId, course: course._id });
 
   if (!content) {
     res.status(404);

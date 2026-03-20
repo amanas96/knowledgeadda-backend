@@ -91,6 +91,7 @@ import {
   getAllQuizzes,
   getQuizzesForCourse,
   getQuizById,
+  getQuizBySlug,
   getQuizQuestions,
   submitQuiz,
   reviewQuiz,
@@ -102,15 +103,16 @@ router.get("/", getAllQuizzes);
 
 // Protected
 router.get("/course/:courseId", protect, getQuizzesForCourse);
-router.get("/:quizId", protect, checkSubscription, getQuizById);
+// router.get("/slug/:slug", getQuizBySlug);
+
+// ── Attempt routes (protected) ───────────────────────────────────────────────
+router.get("/:quizId/attempt-status", protect, getQuizAttemptStatus);
 router.get("/:quizId/questions", protect, checkSubscription, getQuizQuestions);
-router.get(
-  "/:quizId/attempt-status",
-  protect,
-  checkSubscription,
-  getQuizAttemptStatus,
-);
-router.post("/:quizId/submit", protect, checkSubscription, submitQuiz);
-router.get("/:quizId/review", protect, checkSubscription, reviewQuiz);
+// router.get("/:quizId/review", protect, getQuizById);
+router.post("/:quizId/submit", protect, submitQuiz);
+router.get("/:quizId/review", protect, reviewQuiz);
+
+// By ID (protected, subscription-checked)
+router.get("/:quizId", protect, checkSubscription, getQuizById);
 
 export default router;

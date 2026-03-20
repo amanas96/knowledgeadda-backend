@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
 const passwordRegex = new RegExp(
-  "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,12})"
+  "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,12})",
 );
 
 const userSchema = new mongoose.Schema(
@@ -37,7 +37,7 @@ const userSchema = new mongoose.Schema(
     pinCode: { type: String },
     landmark: { type: String },
   },
-  { timestamp: true }
+  { timestamps: true },
 );
 
 userSchema.pre("save", async function (next) {

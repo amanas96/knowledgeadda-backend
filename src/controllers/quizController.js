@@ -6,122 +6,111 @@ import Course from "../models/courseModel.js";
 import QuizAttempt from "../models/quizAttempt.js";
 
 /* ============================================================
+   ✅ Reusable helper — returns QUERY (not document) so you
+   can chain .populate(), .select(), .lean() etc.
+============================================================ */
+const findQuizBySlugOrId = (param) => {
+  const isObjectId = mongoose.Types.ObjectId.isValid(param);
+  return Quiz.findOne(isObjectId ? { _id: param } : { slug: param });
+};
+
+const findCourseBySlugOrId = async (slugOrId) => {
+  if (mongoose.Types.ObjectId.isValid(slugOrId)) {
+    const course = await Course.findById(slugOrId);
+    if (course) return course;
+  }
+  return await Course.findOne({ slug: slugOrId });
+};
+
+/* ============================================================
    Create Quiz (Admin)
 ============================================================ */
 export const createQuiz = asyncHandler(async (req, res) => {
-  try {
-    console.log("Request body:", req.body); // Log incoming data
+  const {
+    title,
+    slug,
+    description,
+    courseId,
+    timeLimit,
+    totalMarks,
+    isPremium,
+    category,
+    customCategory,
+    allowMultipleAttempts,
+    tags,
+  } = req.body;
 
-    const { title, courseId, timeLimit, totalMarks, isPremium, category } =
-      req.body;
+  if (!title?.trim()) {
+    return res.status(400).json({ message: "Title is required" });
+  }
 
-    if (!mongoose.Types.ObjectId.isValid(courseId)) {
-      return res.status(400).json({ message: "Invalid Course ID" });
-    }
+  let course = null;
+  if (courseId) {
+    course = await findCourseBySlugOrId(courseId);
+    if (!course) return res.status(404).json({ message: "Course not found" });
+  }
 
-    const course = await Course.findById(courseId);
-    if (!course) {
-      return res.status(404).json({ message: "Course not found" });
-    }
-
-    const existingQuiz = await Quiz.findOne({ title, course: courseId });
+  // Check duplicate title in same course
+  if (course) {
+    const existingQuiz = await Quiz.findOne({ title, course: course._id });
     if (existingQuiz) {
       return res.status(400).json({
         message: "A quiz with this title already exists for this course.",
       });
     }
+  }
 
-    console.log("Creating quiz with data:", {
-      title,
-      course: courseId,
-      timeLimit: timeLimit || 0,
-      totalMarks: totalMarks || 0,
-      isPublished: true,
-      isPremium: isPremium ?? true,
-    });
+  // Check slug uniqueness
+  if (slug) {
+    const existingSlug = await Quiz.findOne({ slug });
+    if (existingSlug) {
+      return res.status(400).json({
+        message: "This slug is already taken. Please choose another.",
+      });
+    }
+  }
 
-    const quiz = await Quiz.create({
-      title,
-      course: courseId,
-      timeLimit: timeLimit || 0,
-      totalMarks: totalMarks || 0,
-      isPublished: true,
-      isPremium: isPremium ?? true,
-      category: category || "General",
-      createdBy: req.user._id,
-    });
-
-    res.status(201).json(quiz);
-  } catch (error) {
-    console.error("Quiz creation error:", error); // This will show the actual error
-    res.status(500).json({
-      message: error.message,
-      error: process.env.NODE_ENV === "development" ? error : {},
+  if (category === "Other" && !customCategory) {
+    return res.status(400).json({
+      message: "customCategory is required when category is Other",
     });
   }
-});
 
-/* ============================================================
-   Add Question to Quiz (Admin)
-============================================================ */
-export const addQuestionToQuiz = asyncHandler(async (req, res) => {
-  const { quizId } = req.params;
-  const { text, options, correctAnswer, marks, explanation } = req.body;
-
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    return res.status(400).json({ message: "Invalid Quiz ID" });
-  }
-
-  const quiz = await Quiz.findById(quizId);
-  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
-
-  if (!text || !text.trim()) {
-    return res.status(400).json({ message: "Question text is required." });
-  }
-
-  if (!Array.isArray(options) || options.length < 2) {
-    return res
-      .status(400)
-      .json({ message: "Question must have at least 2 options." });
-  }
-  const uniqueOptions = new Set(options);
-  if (uniqueOptions.size !== options.length) {
-    return res.status(400).json({ message: "Options must be unique." });
-  }
-
-  if (!correctAnswer || !options.includes(correctAnswer)) {
-    return res
-      .status(400)
-      .json({ message: "Correct answer must be one of the options." });
-  }
-
-  const question = await Question.create({
-    quiz: quizId,
-    text,
-    options,
-    correctAnswer,
-    marks: marks || 1,
-    explanation: explanation || "",
+  const quiz = await Quiz.create({
+    title,
+    slug,
+    description,
+    course: course?._id || null,
+    timeLimit: Number(timeLimit) || 0,
+    totalMarks: Number(totalMarks) || 0,
+    isPublished: false,
+    isPremium: isPremium ?? false,
+    category: category || "General",
+    customCategory: category === "Other" ? customCategory : null,
+    allowMultipleAttempts: allowMultipleAttempts ?? true,
+    tags: tags || [],
+    createdBy: req.user._id,
   });
 
-  res.status(201).json(question);
+  res.status(201).json(quiz);
 });
 
 /* ============================================================
-   @desc    Get all quizzes (Independent Quiz Module)
-   @route   GET /api/v1/quizzes
-   @access  Public
+   Get All Quizzes (Public)
 ============================================================ */
 export const getAllQuizzes = asyncHandler(async (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : 6;
-  let query = Quiz.find()
+
+  let query = Quiz.find({ isPublished: true })
     .sort({ createdAt: -1 })
-    .select("title course category isPremium timeLimit totalMarks createdAt");
+    .select(
+      "title slug course category isPremium timeLimit totalMarks createdAt",
+    );
 
   if (limit > 0) {
     query = query.limit(limit);
   }
-  console.log("Fetching quizzes with limit:", limit);
+
   const quizzes = await query.lean();
 
   const quizzesWithCount = await Promise.all(
@@ -135,81 +124,151 @@ export const getAllQuizzes = asyncHandler(async (req, res) => {
 });
 
 /* ============================================================
-   Get Quizzes for a Course (Subscribed)
+   Get Quiz By ID or Slug
 ============================================================ */
-export const getQuizzesForCourse = asyncHandler(async (req, res) => {
-  if (!req.user.isAdmin && !req.user.isSubscribed) {
-    return res
-      .status(403)
-      .json({ message: "Subscription required to access quizzes." });
-  }
+export const getQuizById = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
 
-  const { courseId } = req.params;
+  // ✅ No ObjectId check — findQuizBySlugOrId handles both
+  const quiz = await findQuizBySlugOrId(quizId)
+    .populate("course", "title description")
+    .lean();
 
-  const quizzes = await Quiz.find({ course: courseId, isPublished: true })
-    .sort({ createdAt: -1 })
-    .select("title course timeLimit totalMarks createdAt");
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  res.json(quizzes);
+  const totalQuestions = await Question.countDocuments({ quiz: quiz._id });
+
+  res.json({ ...quiz, totalQuestions });
 });
 
 /* ============================================================
-   Get Quiz Questions (check premium)
+   Get Quiz By Slug (explicit slug route)
+============================================================ */
+export const getQuizBySlug = asyncHandler(async (req, res) => {
+  const { slug } = req.params;
+
+  // ✅ Just pass slug string — helper handles slug or _id
+  const quiz = await findQuizBySlugOrId(slug)
+    .populate("course", "title description")
+    .lean();
+
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  const totalQuestions = await Question.countDocuments({ quiz: quiz._id });
+
+  res.json({ ...quiz, totalQuestions });
+});
+
+/* ============================================================
+   Get Quizzes For a Course
+============================================================ */
+export const getQuizzesForCourse = asyncHandler(async (req, res) => {
+  const { courseId } = req.params;
+  const course = await findCourseBySlugOrId(courseId);
+  if (!course) {
+    return res.status(404).json({ message: "Course not found" });
+  }
+
+  // ✅ Use Quiz.find() directly — not findQuizBySlugOrId
+  const quizzes = await Quiz.find({ course: course._id, isPublished: true })
+    .sort({ createdAt: -1 })
+    .select(
+      "title slug course category isPremium timeLimit totalMarks createdAt",
+    )
+    .lean();
+
+  const quizzesWithCount = await Promise.all(
+    quizzes.map(async (quiz) => {
+      const totalQuestions = await Question.countDocuments({ quiz: quiz._id });
+      return { ...quiz, totalQuestions };
+    }),
+  );
+
+  res.json(quizzesWithCount);
+});
+
+/* ============================================================
+   Get Quiz Questions
 ============================================================ */
 export const getQuizQuestions = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    return res.status(400).json({ message: "Invalid Quiz ID" });
-  }
-
-  const quiz = await Quiz.findById(quizId);
+  // ✅ Just pass string — helper handles both slug and _id
+  const quiz = await findQuizBySlugOrId(quizId).lean();
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  // ⭐ Premium check AFTER loading quiz
-  if (quiz.isPremium && !req.user.isSubscribed) {
-    return res
-      .status(403)
-      .json({ message: "This quiz is premium. Subscribe to unlock." });
-  }
+  const questions = await Question.find({ quiz: quiz._id })
+    .select("-correctAnswer") // hide correct answer from students
+    .lean();
 
-  const questions = await Question.find({ quiz: quizId })
-    .select("-correctAnswer -explanation")
-    .sort({ _id: 1 });
-
-  res.json({ quizTitle: quiz.title, timeLimit: quiz.timeLimit, questions });
+  res.json({
+    quizId: quiz._id, // ✅ always return _id for submit
+    quizTitle: quiz.title,
+    timeLimit: quiz.timeLimit,
+    questions,
+  });
 });
 
 /* ============================================================
-   Submit Quiz Attempt
+   Get Quiz Attempt Status
 ============================================================ */
-export const submitQuiz = asyncHandler(async (req, res) => {
+export const getQuizAttemptStatus = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
-  const { answers, timeTaken = 0 } = req.body;
 
-  // 1. Validate quiz ID
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    return res.status(400).json({ message: "Invalid Quiz ID" });
-  }
+  // ✅ No ObjectId check — supports both slug and _id
+  const quiz = await findQuizBySlugOrId(quizId).select(
+    "allowMultipleAttempts isPremium title",
+  );
 
-  // 2. Check quiz exists
-  const quiz = await Quiz.findById(quizId);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  // 3. Premium check
   if (quiz.isPremium && !req.user.isSubscribed) {
     return res
       .status(403)
       .json({ message: "Premium quiz. Subscription required." });
   }
 
-  // 4. Check questions exist
-  const allQuestions = await Question.find({ quiz: quizId });
+  const previousAttempt = await QuizAttempt.findOne({
+    user: req.user._id,
+    quiz: quiz._id, // ✅ use quiz._id not the param string
+    isRetry: false,
+  })
+    .sort({ createdAt: -1 })
+    .select("score totalQuestions percentage timeTaken createdAt")
+    .lean();
+
+  res.json({
+    hasAttempted: !!previousAttempt,
+    allowMultipleAttempts: quiz.allowMultipleAttempts,
+    lastAttempt: previousAttempt || null,
+  });
+});
+
+/* ============================================================
+   Submit Quiz
+============================================================ */
+export const submitQuiz = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
+  const { answers, timeTaken = 0 } = req.body;
+
+  // ✅ No ObjectId check — supports both slug and _id
+  const quiz = await findQuizBySlugOrId(quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  // Premium check
+  if (quiz.isPremium && !req.user.isSubscribed) {
+    return res
+      .status(403)
+      .json({ message: "Premium quiz. Subscription required." });
+  }
+
+  // Fetch questions using quiz._id
+  const allQuestions = await Question.find({ quiz: quiz._id });
   if (!allQuestions.length) {
     return res.status(400).json({ message: "No questions in this quiz." });
   }
 
-  // 5. Evaluate answers FIRST (needed for retry response too)
+  // Evaluate answers FIRST
   let score = 0;
   const detailedResults = allQuestions.map((q) => {
     const userAnswer = answers.find(
@@ -225,18 +284,18 @@ export const submitQuiz = asyncHandler(async (req, res) => {
       question: q._id,
       userAnswer: userAnswer ? userAnswer.userAnswer : null,
       correctAnswer: q.correctAnswer,
-      isCorrect,
+      isCorrect: !!isCorrect,
     };
   });
 
-  // 6. Check previous attempt AFTER evaluation
+  // Check previous attempt AFTER evaluation
   const previousAttempt = await QuizAttempt.findOne({
     user: req.user._id,
-    quiz: quizId,
+    quiz: quiz._id, // ✅ use quiz._id
     isRetry: false,
   });
 
-  // 7. Retry on single-attempt quiz — return score but don't save
+  // Retry on single-attempt quiz — return score but don't save
   if (previousAttempt && !quiz.allowMultipleAttempts) {
     const percentage = Number(
       Math.min((score / allQuestions.length) * 100, 100).toFixed(2),
@@ -250,15 +309,15 @@ export const submitQuiz = asyncHandler(async (req, res) => {
       message: "Retry attempt — score not saved",
     });
   }
-
-  // 8. Save real attempt
+  const isRetryAttempt = !!previousAttempt;
+  // Save real attempt
   const attempt = await QuizAttempt.create({
     user: req.user._id,
-    quiz: quizId,
+    quiz: quiz._id, // ✅ use quiz._id
     score,
     totalQuestions: allQuestions.length,
     timeTaken,
-    isRetry: false,
+    isRetry: isRetryAttempt,
     status: "completed",
     answers: detailedResults,
   });
@@ -279,23 +338,19 @@ export const submitQuiz = asyncHandler(async (req, res) => {
 export const reviewQuiz = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    return res.status(400).json({ message: "Invalid Quiz ID" });
-  }
-
-  const quiz = await Quiz.findById(quizId);
+  // ✅ No ObjectId check — supports both slug and _id
+  const quiz = await findQuizBySlugOrId(quizId);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  // ⭐ Premium check
   if (quiz.isPremium && !req.user.isSubscribed) {
-    return res
-      .status(403)
-      .json({ message: "Review locked. Subscribe to unlock premium quizzes." });
+    return res.status(403).json({
+      message: "Review locked. Subscribe to unlock premium quizzes.",
+    });
   }
 
   const attempt = await QuizAttempt.findOne({
     user: req.user._id,
-    quiz: quizId,
+    quiz: quiz._id, // ✅ use quiz._id
   })
     .populate({
       path: "answers.question",
@@ -304,87 +359,132 @@ export const reviewQuiz = asyncHandler(async (req, res) => {
     .populate("quiz", "title course");
 
   if (!attempt) {
-    return res.status(404).json({ message: "Quiz attempt not found." });
+    return res.status(404).json({ message: "No attempt found for this quiz." });
   }
 
   res.json({
-    quizTitle: attempt.quiz.title,
+    quizTitle: quiz.title,
     totalQuestions: attempt.totalQuestions,
     score: attempt.score,
+    percentage: attempt.percentage,
     answers: attempt.answers.map((ans) => ({
-      question: ans.question.text,
-      options: ans.question.options,
+      question: ans.question?.text,
+      options: ans.question?.options,
       userAnswer: ans.userAnswer,
       correctAnswer: ans.correctAnswer,
-      explanation: ans.question.explanation,
+      explanation: ans.question?.explanation,
       isCorrect: ans.isCorrect,
-      marks: ans.question.marks,
+      marks: ans.question?.marks,
     })),
   });
 });
 
-// @desc    Get single quiz by ID
-// @route   GET /api/v1/quizzes/:quizId
-// @access  Private/Admin
-export const getQuizById = asyncHandler(async (req, res) => {
-  const { quizId } = req.params;
-
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    return res.status(400).json({ message: "Invalid Quiz ID" });
-  }
-
-  const quiz = await Quiz.findById(quizId)
-    .populate("course", "title description")
-    .lean();
-
-  if (!quiz) {
-    return res.status(404).json({ message: "Quiz not found" });
-  }
-
-  const totalQuestions = await Question.countDocuments({ quiz: quizId });
-
-  res.json({ ...quiz, totalQuestions });
-});
-
-////////////////////////// update Quiz
-
+/* ============================================================
+   Update Quiz (Admin)
+============================================================ */
 export const updateQuiz = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
   const updates = req.body;
 
-  const quiz = await Quiz.findById(quizId);
+  const quiz = await findQuizBySlugOrId(quizId);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  Object.assign(quiz, updates);
+  if (updates.category === "Other" && !updates.customCategory) {
+    return res.status(400).json({
+      message: "customCategory is required when category is Other",
+    });
+  }
 
+  // Clear customCategory if category changed away from Other
+  if (updates.category && updates.category !== "Other") {
+    updates.customCategory = null;
+  }
+
+  // Check slug uniqueness if slug is being changed
+  if (updates.slug && updates.slug !== quiz.slug) {
+    const existingSlug = await Quiz.findOne({ slug: updates.slug });
+    if (existingSlug) {
+      return res.status(400).json({
+        message: "This slug is already taken. Please choose another.",
+      });
+    }
+  }
+
+  Object.assign(quiz, updates);
   await quiz.save();
+
   res.json({ message: "Quiz updated", quiz });
 });
 
-///////////////////////////// delete Quiz
-
+/* ============================================================
+   Delete Quiz (Admin)
+============================================================ */
 export const deleteQuiz = asyncHandler(async (req, res) => {
   const { quizId } = req.params;
 
-  const quiz = await Quiz.findById(quizId);
+  const quiz = await findQuizBySlugOrId(quizId);
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
-  await Question.deleteMany({ quiz: quizId });
+  await Question.deleteMany({ quiz: quiz._id }); // ✅ use quiz._id
   await quiz.deleteOne();
 
   res.json({ message: "Quiz deleted successfully" });
 });
 
-////////////////// update question
+/* ============================================================
+   Add Question to Quiz (Admin)
+============================================================ */
+export const addQuestionToQuiz = asyncHandler(async (req, res) => {
+  const { quizId } = req.params;
+  const { text, options, correctAnswer, marks, explanation } = req.body;
 
+  const quiz = await findQuizBySlugOrId(quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  if (!text?.trim()) {
+    return res.status(400).json({ message: "Question text is required." });
+  }
+
+  if (!Array.isArray(options) || options.length < 2) {
+    return res.status(400).json({ message: "At least 2 options required." });
+  }
+
+  const uniqueOptions = new Set(options);
+  if (uniqueOptions.size !== options.length) {
+    return res.status(400).json({ message: "Options must be unique." });
+  }
+
+  if (!correctAnswer || !options.includes(correctAnswer)) {
+    return res.status(400).json({
+      message: "Correct answer must be one of the options.",
+    });
+  }
+
+  const question = await Question.create({
+    quiz: quiz._id, // ✅ use quiz._id
+    text,
+    options,
+    correctAnswer,
+    marks: marks || 1,
+    explanation: explanation || "",
+  });
+
+  res.status(201).json(question);
+});
+
+/* ============================================================
+   Update Question (Admin)
+============================================================ */
 export const updateQuestion = asyncHandler(async (req, res) => {
   const { quizId, questionId } = req.params;
   const updates = req.body;
 
-  const question = await Question.findOne({ _id: questionId, quiz: quizId });
+  const quiz = await findQuizBySlugOrId(quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  const question = await Question.findOne({ _id: questionId, quiz: quiz._id });
   if (!question) return res.status(404).json({ message: "Question not found" });
 
-  // If options updated, ensure correctAnswer is still valid
   if (updates.options && !updates.options.includes(updates.correctAnswer)) {
     return res.status(400).json({
       message: "Correct answer must be one of the updated options",
@@ -397,52 +497,18 @@ export const updateQuestion = asyncHandler(async (req, res) => {
   res.json({ message: "Question updated", question });
 });
 
-/////////////////// delete question
+/* ============================================================
+   Delete Question (Admin)
+============================================================ */
 export const deleteQuestion = asyncHandler(async (req, res) => {
   const { quizId, questionId } = req.params;
 
-  const question = await Question.findOne({ _id: questionId, quiz: quizId });
+  const quiz = await findQuizBySlugOrId(quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  const question = await Question.findOne({ _id: questionId, quiz: quiz._id });
   if (!question) return res.status(404).json({ message: "Question not found" });
 
   await question.deleteOne();
   res.json({ message: "Question deleted successfully" });
-});
-
-// GET /api/v1/quizzes/:quizId/attempt-status
-export const getQuizAttemptStatus = asyncHandler(async (req, res) => {
-  const { quizId } = req.params;
-
-  // 1. Validate quiz ID (same as submitQuiz)
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    return res.status(400).json({ message: "Invalid Quiz ID" });
-  }
-
-  // 2. Check quiz exists
-  const quiz = await Quiz.findById(quizId).select(
-    "allowMultipleAttempts isPremium title",
-  );
-  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
-
-  // 3. Premium check (same as submitQuiz)
-  if (quiz.isPremium && !req.user.isSubscribed) {
-    return res
-      .status(403)
-      .json({ message: "Premium quiz. Subscription required." });
-  }
-
-  // 4. Find previous real attempt (isRetry: false — same logic as submitQuiz)
-  const previousAttempt = await QuizAttempt.findOne({
-    user: req.user._id,
-    quiz: quizId,
-    isRetry: false,
-  })
-    .sort({ createdAt: -1 })
-    .select("score totalQuestions percentage timeTaken createdAt")
-    .lean();
-
-  res.json({
-    hasAttempted: !!previousAttempt,
-    allowMultipleAttempts: quiz.allowMultipleAttempts,
-    lastAttempt: previousAttempt || null,
-  });
 });

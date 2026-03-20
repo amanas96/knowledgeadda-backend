@@ -16,9 +16,11 @@ export const getAdminAnalytics = asyncHandler(async (req, res) => {
   const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
 
   // ── Platform wide (same for all admins) ───────────────────────────────────
-  const totalUsers = await User.countDocuments();
+  const totalUsers = await User.countDocuments({ isAdmin: false });
+  const totalAdmins = await User.countDocuments({ isAdmin: true });
   const newUsersThisMonth = await User.countDocuments({
-    date: { $gte: startOfMonth },
+    isAdmin: false,
+    createdAt: { $gte: startOfMonth },
   });
 
   // ── This admin's content only ─────────────────────────────────────────────
@@ -114,7 +116,11 @@ export const getAdminAnalytics = asyncHandler(async (req, res) => {
   const monthlyUsers = await User.aggregate([
     {
       $match: {
-        date: { $gte: new Date(now.getFullYear(), now.getMonth() - 5, 1) },
+        isAdmin: false, // ← exclude admins
+        createdAt: {
+          // ← correct field
+          $gte: new Date(now.getFullYear(), now.getMonth() - 5, 1),
+        },
       },
     },
     {
