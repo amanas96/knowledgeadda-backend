@@ -38,6 +38,7 @@ export const createQuiz = asyncHandler(async (req, res) => {
     customCategory,
     allowMultipleAttempts,
     tags,
+    quizType,
   } = req.body;
 
   if (!title?.trim()) {
@@ -87,6 +88,7 @@ export const createQuiz = asyncHandler(async (req, res) => {
     isPremium: isPremium ?? false,
     category: category || "General",
     customCategory: category === "Other" ? customCategory : null,
+    quizType: quizType || (courseId ? "course" : "standalone"),
     allowMultipleAttempts: allowMultipleAttempts ?? true,
     tags: tags || [],
     createdBy: req.user._id,
@@ -100,12 +102,14 @@ export const createQuiz = asyncHandler(async (req, res) => {
 ============================================================ */
 export const getAllQuizzes = asyncHandler(async (req, res) => {
   const limit = req.query.limit ? Number(req.query.limit) : 6;
+  const quizType = req.query.type;
 
-  let query = Quiz.find({ isPublished: true })
-    .sort({ createdAt: -1 })
-    .select(
-      "title slug course category isPremium timeLimit totalMarks createdAt",
-    );
+  const filter = { isPublished: true };
+  if (quizType) filter.quizType = quizType;
+
+  let query = Quiz.find(filter).sort({ createdAt: -1 }).select(
+    "title slug course category isPremium timeLimit totalMarks createdAt quizType", // ✅ add quizType to select
+  );
 
   if (limit > 0) {
     query = query.limit(limit);
@@ -511,4 +515,105 @@ export const deleteQuestion = asyncHandler(async (req, res) => {
 
   await question.deleteOne();
   res.json({ message: "Question deleted successfully" });
+});
+
+// ===============================
+// @desc    Get leaderboard for a quiz
+// @route   GET /api/v1/quizzes/:quizId/leaderboard
+// @access  Public
+// ===============================
+export const getQuizLeaderboard = asyncHandler(async (req, res) => {
+  const quiz = await findQuizBySlugOrId(req.params.quizId);
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+
+  const leaderboard = await QuizAttempt.aggregate([
+    { $match: { quiz: quiz._id, status: "completed", isRetry: false } },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: "$user",
+        score: { $first: "$score" },
+        totalQuestions: { $first: "$totalQuestions" },
+        percentage: { $first: "$percentage" },
+        timeTaken: { $first: "$timeTaken" },
+        attemptId: { $first: "$_id" },
+        createdAt: { $first: "$createdAt" },
+      },
+    },
+    { $sort: { score: -1, timeTaken: 1 } },
+    { $limit: 10 },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "user",
+      },
+    },
+    { $unwind: "$user" },
+    { $match: { "user.isAdmin": { $ne: true } } },
+    {
+      $project: {
+        _id: 0,
+        userId: "$_id",
+        name: "$user.name",
+        score: 1,
+        totalQuestions: 1,
+        percentage: 1,
+        timeTaken: 1,
+        createdAt: 1,
+      },
+    },
+  ]);
+
+  res.json({
+    quizTitle: quiz.title,
+    leaderboard,
+  });
+});
+
+// ===============================
+// @desc    Get global leaderboard across all quizzes
+// @route   GET /api/v1/quizzes/leaderboard/global
+// @access  Public
+// ===============================
+export const getGlobalLeaderboard = asyncHandler(async (req, res) => {
+  const leaderboard = await QuizAttempt.aggregate([
+    { $match: { status: "completed", isRetry: false } },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: "$user",
+        totalScore: { $sum: "$score" },
+        totalQuizzes: { $sum: 1 },
+        avgPercentage: { $avg: "$percentage" },
+        totalTimeTaken: { $sum: "$timeTaken" },
+      },
+    },
+    { $sort: { totalScore: -1, avgPercentage: -1 } },
+    { $limit: 10 },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "user",
+      },
+    },
+    { $unwind: "$user" },
+    { $match: { "user.isAdmin": { $ne: true } } },
+    {
+      $project: {
+        _id: 0,
+        userId: "$_id",
+        name: "$user.name",
+        totalScore: 1,
+        totalQuizzes: 1,
+        avgPercentage: { $round: ["$avgPercentage", 2] },
+        totalTimeTaken: 1,
+      },
+    },
+  ]);
+
+  res.json({ leaderboard });
 });

@@ -15,6 +15,8 @@ import {
   deleteCourse,
   addContentToCourse,
   deleteContentFromCourse,
+  deleteAttachment,
+  addAttachmentToContent,
 } from "../controllers/courseController.js";
 import {
   createQuiz,
@@ -25,6 +27,7 @@ import {
   deleteQuestion,
   getQuizzesForCourse,
 } from "../controllers/quizController.js";
+import { getCourseEnrollmentCount } from "../controllers/enrollmentController.js";
 import upload from "../middleware/multerMiddleware.js";
 
 const router = express.Router();
@@ -51,6 +54,17 @@ router.post(
   addContentToCourse,
 );
 router.delete("/courses/:courseId/content/:contentId", deleteContentFromCourse);
+
+router.post(
+  "/courses/:courseId/content/:contentId/attachments",
+  upload.single("attachmentFile"),
+  addAttachmentToContent,
+);
+
+router.delete(
+  "/courses/:courseId/content/:contentId/attachments/:attachmentId",
+  deleteAttachment,
+);
 
 // ── Quizzes ────────────────────────────────────────────────────────────────
 router.post("/quizzes", createQuiz);
@@ -88,6 +102,14 @@ router.get(
 
     res.json(valid);
   }),
+);
+
+// enrollment
+router.get(
+  "/:courseId/enrollments/count",
+  protect,
+  admin,
+  getCourseEnrollmentCount,
 );
 
 export default router;

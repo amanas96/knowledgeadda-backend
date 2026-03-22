@@ -41,6 +41,11 @@ const quizSchema = new mongoose.Schema(
       lowercase: true,
       default: null,
     },
+    quizType: {
+      type: String,
+      enum: ["course", "standalone", "daily", "mock_test"],
+      default: "standalone",
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

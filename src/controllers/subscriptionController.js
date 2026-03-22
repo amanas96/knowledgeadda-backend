@@ -126,6 +126,7 @@
 
 import asyncHandler from "express-async-handler";
 import SubscriptionPlan from "../models/subscriptionPlan.js";
+import mongoose from "mongoose";
 import UserSubscription from "../models/userSubscription.js"; // <-- THIS IS THE FIX
 import crypto from "crypto";
 
@@ -137,6 +138,22 @@ export const getAllPlans = asyncHandler(async (req, res) => {
 export const createSubscriptionOrder = asyncHandler(async (req, res) => {
   const { planId } = req.body;
   const user = req.user;
+
+  const existingActive = await UserSubscription.findOne({
+    user: req.user._id,
+    status: "active",
+    endDate: { $gt: new Date() }, // not expired yet
+  });
+
+  if (existingActive) {
+    return res.status(400).json({
+      message:
+        "You already have an active subscription. It expires on " +
+        new Date(existingActive.endDate).toLocaleDateString(),
+      currentSubscription: existingActive,
+    });
+  }
+
   const plan = await SubscriptionPlan.findById(planId);
   if (!plan) {
     res.status(404);
@@ -181,6 +198,21 @@ export const checkMockStatus = asyncHandler(async (req, res) => {
 export const verifyMockPayment = asyncHandler(async (req, res) => {
   const { planId, mockPaymentId } = req.body;
   const user = req.user;
+
+  const existingActive = await UserSubscription.findOne({
+    user: user._id,
+    status: "active",
+    endDate: { $gt: new Date() },
+  });
+
+  if (existingActive) {
+    return res.status(400).json({
+      message:
+        "You already have an active subscription. It expires on " +
+        new Date(existingActive.endDate).toLocaleDateString(),
+      currentSubscription: existingActive,
+    });
+  }
 
   const plan = await SubscriptionPlan.findById(planId);
   if (!plan) {
