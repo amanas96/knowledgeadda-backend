@@ -1,253 +1,224 @@
+// /////////////// mock
+
 // import asyncHandler from "express-async-handler";
 // import SubscriptionPlan from "../models/subscriptionPlan.js";
-// import Razorpay from "razorpay";
-// import crypto from "crypto"; // This is a built-in Node.js module
+// import mongoose from "mongoose";
+// import UserSubscription from "../models/userSubscription.js"; // <-- THIS IS THE FIX
+// import crypto from "crypto";
 
-// // @desc    Get all active subscription plans
-// // @route   GET /api/v1/subscriptions
-// // @access  Public
 // export const getAllPlans = asyncHandler(async (req, res) => {
 //   const plans = await SubscriptionPlan.find({});
 //   res.json(plans);
 // });
 
-// // @desc    Create a Razorpay order for a subscription
-// // @route   POST /api/v1/subscriptions/subscribe
-// // @access  Private (User must be logged in)
 // export const createSubscriptionOrder = asyncHandler(async (req, res) => {
-//   // 1. Add your Razorpay keys (add these to your .env file)
-//   const razorpay = new Razorpay({
-//     key_id: process.env.RAZORPAY_KEY_ID,
-//     key_secret: process.env.RAZORPAY_KEY_SECRET,
+//   const { planId } = req.body;
+//   const user = req.user;
+
+//   const existingActive = await UserSubscription.findOne({
+//     user: req.user._id,
+//     status: "active",
+//     endDate: { $gt: new Date() }, // not expired yet
 //   });
 
-//   // 2. Get the plan ID from the user's request
-//   const { planId } = req.body;
-//   const user = req.user; // We get this from the 'protect' middleware
+//   if (existingActive) {
+//     return res.status(400).json({
+//       message:
+//         "You already have an active subscription. It expires on " +
+//         new Date(existingActive.endDate).toLocaleDateString(),
+//       currentSubscription: existingActive,
+//     });
+//   }
 
-//   // 3. Find the plan in our database
 //   const plan = await SubscriptionPlan.findById(planId);
 //   if (!plan) {
 //     res.status(404);
 //     throw new Error("Subscription plan not found");
 //   }
 
-//   // 4. Create the Razorpay order
-//   const options = {
-//     amount: plan.price * 100, // Amount in smallest currency unit (e.g., 50000 for 500.00)
+//   console.log("--- CREATING MOCK ORDER ---");
+//   const mockOrderId = `ord_mock_${crypto.randomBytes(12).toString("hex")}`;
+//   const mockKey = "rzp_test_MOCKKEY";
+
+//   const mockOrder = {
+//     id: mockOrderId,
+//     amount: plan.price * 100,
 //     currency: "INR",
-//     receipt: `receipt_${user._id}_${new Date().getTime()}`,
+//     status: "created",
+//     receipt: `receipt_${user?._id || "test"}_${Date.now()}`,
 //     notes: {
-//       planId: plan._id,
-//       userId: user._id,
+//       planId: plan._id.toString(),
+//       userId: user?._id?.toString() || "test_user",
 //     },
 //   };
 
-//   try {
-//     const order = await razorpay.orders.create(options);
-//     // 5. Send the order details back to the frontend
-//     res.json({
-//       orderId: order.id,
-//       amount: order.amount,
-//       currency: order.currency,
-//       key: process.env.RAZORPAY_KEY_ID, // Send key to frontend
-//     });
-//   } catch (error) {
-//     console.error("Razorpay order creation failed:", error);
-//     res.status(500);
-//     throw new Error("Could not create payment order");
-//   }
+//   console.log("Created Mock Order:", mockOrder);
+
+//   res.json({
+//     orderId: mockOrderId,
+//     amount: plan.price * 100,
+//     currency: "INR",
+//     key: mockKey,
+//     order: mockOrder,
+//     usingMock: true,
+//   });
 // });
 
-// @desc    Verify a real payment from Razorpay webhook
-// @route   POST /api/v1/subscriptions/verify-payment
-// @access  Public (Secured by HMAC signature)
-// export const verifyPaymentWebhook = asyncHandler(async (req, res) => {
+// export const checkMockStatus = asyncHandler(async (req, res) => {
+//   res.json({
+//     message: "Razorpay mock mode is active",
+//     usingMock: true,
+//   });
+// });
 
-//   const razorpaySignature = req.headers['x-razorpay-signature'];
-//   if (!razorpaySignature) {
-//     return res.status(400).json({ message: 'Missing Razorpay signature' });
-//   }
+// export const verifyMockPayment = asyncHandler(async (req, res) => {
+//   const { planId, mockPaymentId } = req.body;
+//   const user = req.user;
 
-//   const shasum = crypto
-//     .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
-//     .update(JSON.stringify(req.body))
-//     .digest('hex');
+//   const existingActive = await UserSubscription.findOne({
+//     user: user._id,
+//     status: "active",
+//     endDate: { $gt: new Date() },
+//   });
 
-//   // 3. Compare the signatures
-//   if (shasum !== razorpaySignature) {
-//     // This is a CRITICAL security check
-//     return res.status(401).json({ message: 'Invalid signature' });
-//   }
-
-//   // 4. --- SIGNATURE IS VALID ---
-//   // The request is genuinely from Razorpay. Now, process the payment.
-
-//   const event = req.body.event;
-//   const payment = req.body.payload.payment.entity;
-
-//   // 5. We only care about successful payment events
-//   if (event === 'payment.captured') {
-//     const { planId, userId } = payment.notes;
-//     const paymentId = payment.id;
-
-//     // 6. Find the plan and user
-//     const plan = await SubscriptionPlan.findById(planId);
-//     const user = await User.findById(userId); // You may need to import User model
-
-//     if (!plan || !user) {
-//       // Log this error, as it's a problem
-//       console.error(`Webhook Error: Plan or User not found. Plan: ${planId}, User: ${userId}`);
-//       // Still send 200, or Razorpay will retry
-//       return res.status(200).json({ message: 'Plan or User not found, but acknowledged' });
-//     }
-
-//     // 7. Calculate start and end dates
-//     const startDate = new Date();
-//     const endDate = new Date();
-//     endDate.setDate(startDate.getDate() + plan.durationInDays);
-
-//     // 8. Create the official subscription
-//     await UserSubscription.create({
-//       user: user._id,
-//       plan: plan._id,
-//       startDate,
-//       endDate,
-//       paymentGatewayPaymentId: paymentId,
-//       status: 'active',
+//   if (existingActive) {
+//     return res.status(400).json({
+//       message:
+//         "You already have an active subscription. It expires on " +
+//         new Date(existingActive.endDate).toLocaleDateString(),
+//       currentSubscription: existingActive,
 //     });
 //   }
 
-//   // 9. IMPORTANT: Acknowledge the webhook with a 200 OK
-//   res.status(200).json({ received: true });
+//   const plan = await SubscriptionPlan.findById(planId);
+//   if (!plan) {
+//     res.status(404);
+//     throw new Error("Subscription plan not found");
+//   }
+
+//   const startDate = new Date();
+//   const endDate = new Date();
+//   endDate.setDate(startDate.getDate() + plan.durationInDays);
+
+//   const subscription = new UserSubscription({
+//     user: user._id,
+//     plan: plan._id,
+//     startDate,
+//     endDate,
+//     paymentGatewayPaymentId:
+//       mockPaymentId || `mock_pay_${crypto.randomBytes(8).toString("hex")}`,
+//     status: "active",
+//   });
+
+//   await subscription.save();
+
+//   res.status(201).json({
+//     message: "Mock subscription activated!",
+//     subscription,
+//   });
 // });
 
-/////////////// mock
+// export const getMyTransactions = asyncHandler(async (req, res) => {
+//   const user = req.user;
+
+//   const transactions = await UserSubscription.find({ user: user._id })
+//     .populate("plan", "name price durationInDays")
+//     .sort({ createdAt: -1 });
+
+//   res.json(transactions);
+// });
 
 import asyncHandler from "express-async-handler";
-import SubscriptionPlan from "../models/subscriptionPlan.js";
-import mongoose from "mongoose";
-import UserSubscription from "../models/userSubscription.js"; // <-- THIS IS THE FIX
-import crypto from "crypto";
+import {
+  getAllPlansService,
+  createSubscriptionOrderService,
+  verifyPaymentService,
+  handleWebhookService,
+  getMyTransactionsService,
+  getMySubscriptionService,
+} from "../services/subscriptionService.js";
 
+/* ── tiny helper so every handler is one line ──────────────── */
+const send = (res, { status, body }) => res.status(status).json(body);
+
+// =============================================================================
+// @desc    Get all active subscription plans
+// @route   GET /api/v1/subscriptions/plans
+// @access  Public
+// =============================================================================
 export const getAllPlans = asyncHandler(async (req, res) => {
-  const plans = await SubscriptionPlan.find({});
-  res.json(plans);
+  send(res, await getAllPlansService());
 });
 
+// =============================================================================
+// @desc    Create a Razorpay order for a plan
+// @route   POST /api/v1/subscriptions/create-order
+// @access  Private
+// =============================================================================
 export const createSubscriptionOrder = asyncHandler(async (req, res) => {
-  const { planId } = req.body;
-  const user = req.user;
-
-  const existingActive = await UserSubscription.findOne({
-    user: req.user._id,
-    status: "active",
-    endDate: { $gt: new Date() }, // not expired yet
-  });
-
-  if (existingActive) {
-    return res.status(400).json({
-      message:
-        "You already have an active subscription. It expires on " +
-        new Date(existingActive.endDate).toLocaleDateString(),
-      currentSubscription: existingActive,
-    });
-  }
-
-  const plan = await SubscriptionPlan.findById(planId);
-  if (!plan) {
-    res.status(404);
-    throw new Error("Subscription plan not found");
-  }
-
-  console.log("--- CREATING MOCK ORDER ---");
-  const mockOrderId = `ord_mock_${crypto.randomBytes(12).toString("hex")}`;
-  const mockKey = "rzp_test_MOCKKEY";
-
-  const mockOrder = {
-    id: mockOrderId,
-    amount: plan.price * 100,
-    currency: "INR",
-    status: "created",
-    receipt: `receipt_${user?._id || "test"}_${Date.now()}`,
-    notes: {
-      planId: plan._id.toString(),
-      userId: user?._id?.toString() || "test_user",
-    },
-  };
-
-  console.log("Created Mock Order:", mockOrder);
-
-  res.json({
-    orderId: mockOrderId,
-    amount: plan.price * 100,
-    currency: "INR",
-    key: mockKey,
-    order: mockOrder,
-    usingMock: true,
-  });
+  console.log("BODY:", req.body);
+  send(res, await createSubscriptionOrderService(req.body.planId, req.user));
 });
 
-export const checkMockStatus = asyncHandler(async (req, res) => {
-  res.json({
-    message: "Razorpay mock mode is active",
-    usingMock: true,
-  });
+// =============================================================================
+// @desc    Verify Razorpay payment signature and activate subscription
+// @route   POST /api/v1/subscriptions/verify-payment
+// @access  Private
+// =============================================================================
+export const verifyPayment = asyncHandler(async (req, res) => {
+  const { razorpayOrderId, razorpayPaymentId, razorpaySignature, planId } =
+    req.body;
+
+  send(
+    res,
+    await verifyPaymentService({
+      razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature,
+      planId,
+      userId: req.user._id,
+    }),
+  );
 });
 
-export const verifyMockPayment = asyncHandler(async (req, res) => {
-  const { planId, mockPaymentId } = req.body;
-  const user = req.user;
+// =============================================================================
+// @desc    Razorpay webhook receiver
+// @route   POST /api/v1/subscriptions/webhook
+// @access  Public (Razorpay servers only — verified by signature)
+//
+// IMPORTANT: this route must use express.raw({ type: "application/json" })
+// middleware, NOT express.json() — Razorpay signature verification requires
+// the unmodified raw body bytes.
+//
+// In your router:
+//   router.post(
+//     "/webhook",
+//     express.raw({ type: "application/json" }),
+//     webhookHandler,
+//   );
+// =============================================================================
+export const webhookHandler = asyncHandler(async (req, res) => {
+  const signature = req.headers["x-razorpay-signature"];
+  const rawBody = req.body;
+  const { event, payload } = JSON.parse(rawBody);
 
-  const existingActive = await UserSubscription.findOne({
-    user: user._id,
-    status: "active",
-    endDate: { $gt: new Date() },
-  });
-
-  if (existingActive) {
-    return res.status(400).json({
-      message:
-        "You already have an active subscription. It expires on " +
-        new Date(existingActive.endDate).toLocaleDateString(),
-      currentSubscription: existingActive,
-    });
-  }
-
-  const plan = await SubscriptionPlan.findById(planId);
-  if (!plan) {
-    res.status(404);
-    throw new Error("Subscription plan not found");
-  }
-
-  const startDate = new Date();
-  const endDate = new Date();
-  endDate.setDate(startDate.getDate() + plan.durationInDays);
-
-  const subscription = new UserSubscription({
-    user: user._id,
-    plan: plan._id,
-    startDate,
-    endDate,
-    paymentGatewayPaymentId:
-      mockPaymentId || `mock_pay_${crypto.randomBytes(8).toString("hex")}`,
-    status: "active",
-  });
-
-  await subscription.save();
-
-  res.status(201).json({
-    message: "Mock subscription activated!",
-    subscription,
-  });
+  send(res, await handleWebhookService({ rawBody, signature, event, payload }));
 });
 
+// =============================================================================
+// @desc    Get the current user's transaction history
+// @route   GET /api/v1/subscriptions/transactions
+// @access  Private
+// =============================================================================
 export const getMyTransactions = asyncHandler(async (req, res) => {
-  const user = req.user;
+  send(res, await getMyTransactionsService(req.user._id));
+});
 
-  const transactions = await UserSubscription.find({ user: user._id })
-    .populate("plan", "name price durationInDays")
-    .sort({ createdAt: -1 });
-
-  res.json(transactions);
+// =============================================================================
+// @desc    Get the current user's active subscription status
+// @route   GET /api/v1/subscriptions/my-subscription
+// @access  Private
+// =============================================================================
+export const getMySubscription = asyncHandler(async (req, res) => {
+  send(res, await getMySubscriptionService(req.user._id));
 });

@@ -33,6 +33,7 @@ const questionSchema = new mongoose.Schema({
   },
   marks: { type: Number, default: 1 },
   explanation: { type: String },
+  isDeleted: { type: Boolean, default: false },
 });
 
 const Question = mongoose.model("Question", questionSchema);

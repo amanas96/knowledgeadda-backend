@@ -22,10 +22,15 @@ import {
   createQuiz,
   updateQuiz,
   deleteQuiz,
+  getQuizQuestions,
   addQuestionToQuiz,
   updateQuestion,
   deleteQuestion,
   getQuizzesForCourse,
+  getAllQuizzes,
+  getQuizById,
+  getAdminSingleQuestion,
+  addQuestionToExistingQuiz,
 } from "../controllers/quizController.js";
 import { getCourseEnrollmentCount } from "../controllers/enrollmentController.js";
 import upload from "../middleware/multerMiddleware.js";
@@ -67,15 +72,21 @@ router.delete(
 );
 
 // ── Quizzes ────────────────────────────────────────────────────────────────
+router.get("/quizzes/:quizId/questions/:questionId", getAdminSingleQuestion);
+router.delete("/quizzes/:quizId/questions/:questionId", deleteQuestion);
+router.get("/quizzes/:quizId", getQuizById);
+router.get("/quizzes", getAllQuizzes);
 router.post("/quizzes", createQuiz);
 router.put("/quizzes/:quizId", updateQuiz);
 router.delete("/quizzes/:quizId", deleteQuiz);
+
 router.get("/quizzes/course/:courseId", getQuizzesForCourse);
 
 // ── Questions ──────────────────────────────────────────────────────────────
+router.get("/quizzes/:quizId/questions", getQuizQuestions);
 router.post("/quizzes/:quizId/questions", addQuestionToQuiz);
+router.post("/quizzes/:quizId/questions", addQuestionToExistingQuiz);
 router.put("/quizzes/:quizId/questions/:questionId", updateQuestion);
-router.delete("/quizzes/:quizId/questions/:questionId", deleteQuestion);
 
 // ── All users
 router.get(

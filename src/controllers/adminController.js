@@ -12,212 +12,191 @@ export const getAdminAnalytics = asyncHandler(async (req, res) => {
   const now = new Date();
 
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+  const startOfLast6Months = new Date(now.getFullYear(), now.getMonth() - 5, 1);
 
-  // ── Platform wide (same for all admins) ───────────────────────────────────
-  const totalUsers = await User.countDocuments({ isAdmin: false });
-  const totalAdmins = await User.countDocuments({ isAdmin: true });
-  const newUsersThisMonth = await User.countDocuments({
-    isAdmin: false,
-    createdAt: { $gte: startOfMonth },
-  });
-
-  // ── This admin's content only ─────────────────────────────────────────────
-  const totalCourses = await Course.countDocuments({ createdBy: adminId });
-  const totalContent = await Content.countDocuments({ createdBy: adminId });
-  const totalQuizzes = await Quiz.countDocuments({ createdBy: adminId });
-
-  // ── Revenue from subscriptions to THIS admin's courses ────────────────────
-  const adminCourseIds = await Course.find({ createdBy: adminId }).select(
-    "_id",
-  );
-  const courseIds = adminCourseIds.map((c) => c._id);
-
-  const totalSubscriptions = await UserSubscription.countDocuments();
-  const activeSubscriptions = await UserSubscription.countDocuments({
-    status: "active",
-    endDate: { $gt: now },
-  });
-  const newSubscriptionsThisMonth = await UserSubscription.countDocuments({
-    createdAt: { $gte: startOfMonth },
-  });
-
-  // ── Total revenue (platform wide — all admins see same) ───────────────────
-  const revenueData = await UserSubscription.aggregate([
-    {
-      $lookup: {
-        from: "subscriptionplans",
-        localField: "plan",
-        foreignField: "_id",
-        as: "planDetails",
-      },
-    },
-    { $unwind: "$planDetails" },
-    {
-      $group: {
-        _id: null,
-        totalRevenue: { $sum: "$planDetails.price" },
-      },
-    },
-  ]);
-  const totalRevenue = revenueData[0]?.totalRevenue || 0;
-
-  const revenueThisMonthData = await UserSubscription.aggregate([
-    { $match: { createdAt: { $gte: startOfMonth } } },
-    {
-      $lookup: {
-        from: "subscriptionplans",
-        localField: "plan",
-        foreignField: "_id",
-        as: "planDetails",
-      },
-    },
-    { $unwind: "$planDetails" },
-    {
-      $group: {
-        _id: null,
-        revenue: { $sum: "$planDetails.price" },
-      },
-    },
-  ]);
-  const revenueThisMonth = revenueThisMonthData[0]?.revenue || 0;
-
-  // ── Monthly revenue chart (last 6 months) ────────────────────────────────
-  const monthlyRevenue = await UserSubscription.aggregate([
-    {
-      $match: {
-        createdAt: { $gte: new Date(now.getFullYear(), now.getMonth() - 5, 1) },
-      },
-    },
-    {
-      $lookup: {
-        from: "subscriptionplans",
-        localField: "plan",
-        foreignField: "_id",
-        as: "planDetails",
-      },
-    },
-    { $unwind: "$planDetails" },
-    {
-      $group: {
-        _id: {
-          year: { $year: "$createdAt" },
-          month: { $month: "$createdAt" },
-        },
-        revenue: { $sum: "$planDetails.price" },
-        count: { $sum: 1 },
-      },
-    },
-    { $sort: { "_id.year": 1, "_id.month": 1 } },
+  // ── Step 1: Get admin's course/quiz IDs (Parallel & Distinct) ──
+  // .distinct returns an array of IDs directly: [id1, id2...]
+  const [courseIds, quizIds] = await Promise.all([
+    Course.distinct("_id", { createdBy: adminId }),
+    Quiz.distinct("_id", { createdBy: adminId }),
   ]);
 
-  // ── Monthly new users chart (last 6 months) ──────────────────────────────
-  const monthlyUsers = await User.aggregate([
-    {
-      $match: {
-        isAdmin: false, // ← exclude admins
-        createdAt: {
-          // ← correct field
-          $gte: new Date(now.getFullYear(), now.getMonth() - 5, 1),
+  // ── Step 2: Fire all remaining queries in parallel ────────────────────────
+  const [
+    totalUsers,
+    totalAdmins,
+    newUsersThisMonth,
+    totalCourses,
+    totalContent,
+    totalQuizzes,
+    totalSubscriptions,
+    activeSubscriptions,
+    newSubscriptionsThisMonth,
+    totalQuizAttempts,
+    completedAttempts,
+    revenueData,
+    revenueThisMonthData,
+    monthlyRevenue,
+    monthlyUsers,
+    avgScoreData,
+    topQuizzes,
+    topCourses,
+  ] = await Promise.all([
+    // ── Users (Using 'date') ────────────────────────────────────────────────
+    User.countDocuments({ isAdmin: false }),
+    User.countDocuments({ isAdmin: true }),
+    User.countDocuments({ isAdmin: false, date: { $gte: startOfMonth } }),
+
+    // ── This admin's content ────────────────────────────────────────────────
+    Course.countDocuments({ createdBy: adminId }),
+    Content.countDocuments({ createdBy: adminId }),
+    Quiz.countDocuments({ createdBy: adminId }),
+
+    // ── Subscriptions (Platform Wide) ───────────────────────────────────────
+    UserSubscription.countDocuments(),
+    UserSubscription.countDocuments({
+      status: "active",
+      endDate: { $gt: now },
+    }),
+    UserSubscription.countDocuments({ date: { $gte: startOfMonth } }),
+
+    // ── Quiz attempts (Filtered by Admin's Quizzes) ─────────────────────────
+    QuizAttempt.countDocuments({ quiz: { $in: quizIds } }),
+    QuizAttempt.countDocuments({ quiz: { $in: quizIds }, status: "completed" }),
+
+    // ── Revenue Aggregations ────────────────────────────────────────────────
+    UserSubscription.aggregate([
+      {
+        $lookup: {
+          from: "subscriptionplans",
+          localField: "plan",
+          foreignField: "_id",
+          as: "planDetails",
         },
       },
-    },
-    {
-      $group: {
-        _id: {
-          year: { $year: "$date" },
-          month: { $month: "$date" },
+      { $unwind: "$planDetails" },
+      { $group: { _id: null, totalRevenue: { $sum: "$planDetails.price" } } },
+    ]),
+
+    UserSubscription.aggregate([
+      { $match: { date: { $gte: startOfMonth } } }, // Using 'date'
+      {
+        $lookup: {
+          from: "subscriptionplans",
+          localField: "plan",
+          foreignField: "_id",
+          as: "planDetails",
         },
-        count: { $sum: 1 },
       },
-    },
-    { $sort: { "_id.year": 1, "_id.month": 1 } },
+      { $unwind: "$planDetails" },
+      { $group: { _id: null, revenue: { $sum: "$planDetails.price" } } },
+    ]),
+
+    // ── Monthly revenue chart (Using 'date') ────────────────────────────────
+    UserSubscription.aggregate([
+      { $match: { date: { $gte: startOfLast6Months } } },
+      {
+        $lookup: {
+          from: "subscriptionplans",
+          localField: "plan",
+          foreignField: "_id",
+          as: "planDetails",
+        },
+      },
+      { $unwind: "$planDetails" },
+      {
+        $group: {
+          _id: { year: { $year: "$date" }, month: { $month: "$date" } },
+          revenue: { $sum: "$planDetails.price" },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]),
+
+    // ── Monthly new users chart (Using 'date') ──────────────────────────────
+    User.aggregate([
+      {
+        $match: {
+          isAdmin: false,
+          date: { $gte: startOfLast6Months },
+        },
+      },
+      {
+        $group: {
+          _id: { year: { $year: "$date" }, month: { $month: "$date" } },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]),
+
+    // ── Performance Metrics ─────────────────────────────────────────────────
+    QuizAttempt.aggregate([
+      { $match: { quiz: { $in: quizIds }, status: "completed" } },
+      { $group: { _id: null, avgPercentage: { $avg: "$percentage" } } },
+    ]),
+
+    QuizAttempt.aggregate([
+      { $match: { quiz: { $in: quizIds } } },
+      {
+        $group: {
+          _id: "$quiz",
+          attempts: { $sum: 1 },
+          avgScore: { $avg: "$percentage" },
+        },
+      },
+      { $sort: { attempts: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "quizzes",
+          localField: "_id",
+          foreignField: "_id",
+          as: "q",
+        },
+      },
+      { $unwind: "$q" },
+      {
+        $project: {
+          title: "$q.title",
+          attempts: 1,
+          avgScore: { $round: ["$avgScore", 1] },
+        },
+      },
+    ]),
+
+    WatchHistory.aggregate([
+      { $match: { course: { $in: courseIds } } },
+      {
+        $group: {
+          _id: "$course",
+          totalWatchMins: { $sum: "$watchedMinutes" },
+          totalStudents: { $addToSet: "$user" },
+        },
+      },
+      { $sort: { totalWatchMins: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: "courses",
+          localField: "_id",
+          foreignField: "_id",
+          as: "c",
+        },
+      },
+      { $unwind: "$c" },
+      {
+        $project: {
+          title: "$c.title",
+          totalWatchMins: 1,
+          totalStudents: { $size: "$totalStudents" },
+        },
+      },
+    ]),
   ]);
 
-  // ── Quiz performance for THIS admin's quizzes ─────────────────────────────
-  const adminQuizIds = await Quiz.find({ createdBy: adminId }).select("_id");
-  const quizIds = adminQuizIds.map((q) => q._id);
-
-  const totalQuizAttempts = await QuizAttempt.countDocuments({
-    quiz: { $in: quizIds },
-  });
-  const completedAttempts = await QuizAttempt.countDocuments({
-    quiz: { $in: quizIds },
-    status: "completed",
-  });
-
-  const avgScoreData = await QuizAttempt.aggregate([
-    { $match: { quiz: { $in: quizIds }, status: "completed" } },
-    {
-      $group: {
-        _id: null,
-        avgPercentage: { $avg: "$percentage" },
-      },
-    },
-  ]);
-  const avgQuizScore = Math.round(avgScoreData[0]?.avgPercentage || 0);
-
-  // ── Top 5 quizzes by THIS admin ───────────────────────────────────────────
-  const topQuizzes = await QuizAttempt.aggregate([
-    { $match: { quiz: { $in: quizIds } } },
-    {
-      $group: {
-        _id: "$quiz",
-        attempts: { $sum: 1 },
-        avgScore: { $avg: "$percentage" },
-      },
-    },
-    { $sort: { attempts: -1 } },
-    { $limit: 5 },
-    {
-      $lookup: {
-        from: "quizzes",
-        localField: "_id",
-        foreignField: "_id",
-        as: "quizDetails",
-      },
-    },
-    { $unwind: "$quizDetails" },
-    {
-      $project: {
-        title: "$quizDetails.title",
-        attempts: 1,
-        avgScore: { $round: ["$avgScore", 1] },
-      },
-    },
-  ]);
-
-  // ── Top 5 courses by THIS admin ───────────────────────────────────────────
-  const topCourses = await WatchHistory.aggregate([
-    { $match: { course: { $in: courseIds } } },
-    {
-      $group: {
-        _id: "$course",
-        totalWatchMins: { $sum: "$watchedMinutes" },
-        totalStudents: { $addToSet: "$user" },
-      },
-    },
-    { $sort: { totalWatchMins: -1 } },
-    { $limit: 5 },
-    {
-      $lookup: {
-        from: "courses",
-        localField: "_id",
-        foreignField: "_id",
-        as: "courseDetails",
-      },
-    },
-    { $unwind: "$courseDetails" },
-    {
-      $project: {
-        title: "$courseDetails.title",
-        totalWatchMins: 1,
-        totalStudents: { $size: "$totalStudents" },
-      },
-    },
-  ]);
-
+  // ── Final Data Cleanup ────────────────────────────────────────────────────
   res.json({
     overview: {
       totalUsers,
@@ -225,20 +204,20 @@ export const getAdminAnalytics = asyncHandler(async (req, res) => {
       totalSubscriptions,
       activeSubscriptions,
       newSubscriptionsThisMonth,
-      totalRevenue,
-      revenueThisMonth,
-      totalCourses, // ✅ this admin only
-      totalContent, // ✅ this admin only
-      totalQuizzes, // ✅ this admin only
-      totalQuizAttempts, // ✅ this admin only
-      completedAttempts, // ✅ this admin only
-      avgQuizScore, // ✅ this admin only
+      totalRevenue: revenueData[0]?.totalRevenue || 0,
+      revenueThisMonth: revenueThisMonthData[0]?.revenue || 0,
+      totalCourses,
+      totalContent,
+      totalQuizzes,
+      totalQuizAttempts,
+      completedAttempts,
+      avgQuizScore: Math.round(avgScoreData[0]?.avgPercentage || 0),
     },
     charts: {
       monthlyRevenue,
       monthlyUsers,
     },
-    topQuizzes, // ✅ this admin only
-    topCourses, // ✅ this admin only
+    topQuizzes,
+    topCourses,
   });
 });

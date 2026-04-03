@@ -10,6 +10,7 @@ import {
   getQuizBySlug,
   getQuizQuestions,
   submitQuiz,
+  getAttemptHistory,
   reviewQuiz,
   getQuizAttemptStatus,
   getQuizLeaderboard,
@@ -24,6 +25,8 @@ router.get("/course/:courseId", protect, getQuizzesForCourse);
 
 // ── Attempt routes (protected) ───────────────────────────────────────────────
 router.get("/:quizId/attempt-status", protect, getQuizAttemptStatus);
+// routes/quizRoutes.js
+router.get("/:quizId/attempts", protect, getAttemptHistory);
 router.get("/:quizId/questions", protect, checkSubscription, getQuizQuestions);
 // router.get("/:quizId/review", protect, getQuizById);
 router.post("/:quizId/submit", protect, submitQuiz);

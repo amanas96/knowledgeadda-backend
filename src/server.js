@@ -22,6 +22,7 @@ import contactRouter from "./routes/contactRoute.js";
 import profileRouter from "./routes/profile.js";
 import adminRouter from "./routes/admin.js";
 import userRoutes from "./routes/userRoute.js";
+import { connectRedis } from "./config/redis.js";
 
 //  validate env first
 validateEnv();
@@ -64,7 +65,7 @@ app.use(
 //  rate limiting
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 100000,
   message: { message: "Too many requests, please try again after 15 minutes" },
   standardHeaders: true,
   legacyHeaders: false,
@@ -105,15 +106,39 @@ app.get("/", (req, res) => {
 app.use(errorHandler);
 
 //  start server
-connectDB()
-  .then(() => {
-    app.listen(port, () => {
-      console.log(`Server connected to http://localhost:${port}`);
-    });
-  })
-  .catch((err) => {
-    console.log("Invalid Database connection");
-    console.error(err);
+
+async function startServer() {
+  await connectDB();
+  console.log("MongoDB connected");
+
+  try {
+    await connectRedis();
+  } catch (err) {
+    console.warn("⚠️  Redis unavailable on startup — running without cache.");
+    console.warn("    All requests will be served directly from MongoDB.");
+  }
+  app.listen(port, () => {
+    console.log(`Server connected to http://localhost:${port}`);
   });
+}
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+
+async function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down...`);
+  await redisClient.quit();
+  console.log("✅ Redis disconnected");
+  await mongoose.connection.close();
+  console.log("✅ MongoDB disconnected");
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+startServer().catch((err) => {
+  console.error(" Failed to start server:", err.message);
+  process.exit(1);
+});
 
 export default app;

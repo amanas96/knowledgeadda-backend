@@ -41,6 +41,7 @@ const quizAttemptSchema = new mongoose.Schema(
       enum: ["completed", "in-progress"],
       default: "completed",
     },
+    attemptNumber: { type: Number, default: 1 },
     // We store what the user answered for every question
     answers: [
       {
@@ -66,8 +67,16 @@ quizAttemptSchema.pre("save", function (next) {
   next();
 });
 
-quizAttemptSchema.index({ user: 1, quiz: 1 });
-quizAttemptSchema.index({ user: 1, createdAt: -1 });
+quizAttemptSchema.index({ user: 1, quiz: 1, createdAt: -1 });
+quizAttemptSchema.index({
+  quiz: 1,
+  status: 1,
+  isRetry: 1,
+  score: -1,
+  timeTaken: 1,
+});
+
+quizAttemptSchema.index({ status: 1, isRetry: 1, user: 1, score: -1 });
 
 const QuizAttempt = mongoose.model("QuizAttempt", quizAttemptSchema);
 export default QuizAttempt;

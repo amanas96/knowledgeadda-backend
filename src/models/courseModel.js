@@ -1,4 +1,3 @@
-import { maxHeaderSize } from "http";
 import mongoose from "mongoose";
 
 const courseSchema = new mongoose.Schema(
@@ -7,60 +6,55 @@ const courseSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      Minlength: [5, "Title must be at least 5 characters long"],
+      minlength: [5, "Title must be at least 5 characters long"],
+      maxlength: [120, "Title must be at most 120 characters long"],
     },
     slug: {
       type: String,
       unique: true,
       lowercase: true,
       trim: true,
-      required: true,
     },
     description: {
       type: String,
       required: true,
       trim: true,
+      maxlength: [2000, "Description must be at most 2000 characters long"],
     },
     thumbnailUrl: {
-      type: String, // URL to an image
+      type: String,
       required: true,
-    },
-
-    tags: [
-      {
-        type: String,
-        lowercase: true,
-        trim: true,
+      validate: {
+        validator: (v) => /^https?:\/\/.+/.test(v),
+        message: "thumbnailUrl must be a valid URL",
       },
-    ],
+    },
+    tags: {
+      type: [{ type: String, lowercase: true, trim: true }],
+      validate: {
+        validator: (v) => v.length <= 10,
+        message: "A course can have at most 10 tags",
+      },
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
   },
-  {
-    timestamps: true,
-  },
+  { timestamps: true },
 );
 
-courseSchema.index({ title: "text", description: "text", tags: "text" });
+courseSchema.index(
+  { title: "text", description: "text", tags: "text" },
+  { weights: { title: 10, tags: 5, description: 1 } },
+);
+courseSchema.index({ createdAt: -1 });
+courseSchema.index({ title: 1 });
 
+// Generate slug only on creation to preserve stable URLs
 courseSchema.pre("validate", function (next) {
-  if (!this.slug && this.title) {
-    this.slug = this.title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .trim()
-      .replace(/\s+/g, "-")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-");
-  }
-  next();
-});
-courseSchema.pre("validate", function (next) {
-  // runs when new doc OR when title is modified
-  if (this.isNew || this.isModified("title")) {
+  if (this.isNew && this.title) {
     this.slug = this.title
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, "")

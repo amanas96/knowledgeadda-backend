@@ -54,5 +54,19 @@ const contentSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+// most critical — getCourseContent does: Content.find({ course: courseId })
+// without this index every query is a full collection scan
+contentSchema.index({ course: 1 });
+
+// getSingleContentItem does: Content.findOne({ _id, course })
+// compound index covers both fields in one lookup
+contentSchema.index({ course: 1, _id: 1 });
+
+// filter by section within a course (e.g. course content grouped by section)
+contentSchema.index({ course: 1, section: 1 });
+
+// sort by creation order within a course
+contentSchema.index({ course: 1, createdAt: 1 });
+
 const Content = mongoose.model("Content", contentSchema);
 export default Content;
