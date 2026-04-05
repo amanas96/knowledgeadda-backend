@@ -1,6 +1,8 @@
 import asyncHandler from "express-async-handler";
 import Contact from "../models/contactModel.js";
 import { validationResult } from "express-validator";
+import { ApiError } from "../../utils/ApiError.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 
 // ---------------------------------------------
 // USER: CREATE TICKET
@@ -8,10 +10,10 @@ import { validationResult } from "express-validator";
 export const createTicket = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    throw new ApiError(400, "Validation failed", errors.array());
   }
 
-  const userId = req.user?._id; // if logged in
+  const userId = req.user?._id;
   const { name, email, subject, message } = req.body;
 
   const ticket = await Contact.create({
@@ -29,11 +31,7 @@ export const createTicket = asyncHandler(async (req, res) => {
     status: "open",
   });
 
-  res.status(201).json({
-    success: true,
-    ticket,
-    message: "Ticket created successfully",
-  });
+  new ApiResponse(201, ticket, "Ticket created successfully").send(res);
 });
 
 // ---------------------------------------------
@@ -45,20 +43,18 @@ export const adminGetAllTickets = asyncHandler(async (req, res) => {
     .populate("user", "name email")
     .sort({ updatedAt: -1 });
 
-  res.json({ success: true, tickets });
+  new ApiResponse(200, tickets, "Tickets fetched successfully").send(res);
 });
 
 // ---------------------------------------------
 // USER: GET MY TICKETS
 // ---------------------------------------------
 export const userGetMyTickets = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
-
-  const tickets = await Contact.find({ user: userId }).sort({
+  const tickets = await Contact.find({ user: req.user._id }).sort({
     updatedAt: -1,
   });
 
-  res.json({ success: true, tickets });
+  new ApiResponse(200, tickets, "Your tickets fetched successfully").send(res);
 });
 
 // ---------------------------------------------
@@ -70,37 +66,25 @@ export const adminReplyToTicket = asyncHandler(async (req, res) => {
   const adminId = req.user._id;
 
   const ticket = await Contact.findById(id);
-
-  if (!ticket) {
-    return res.status(404).json({ message: "Ticket not found" });
-  }
+  if (!ticket) throw ApiError.notFound("Ticket not found");
 
   if (
     ticket.assignedTo &&
     ticket.assignedTo.toString() !== adminId.toString()
   ) {
-    return res.status(403).json({
-      message: "This ticket is already assigned to another admin.",
-    });
+    throw ApiError.forbidden(
+      "This ticket is already assigned to another admin.",
+    );
   }
 
-  ticket.messages.push({
-    senderType: "admin",
-    sender: adminId,
-    text,
-  });
-
+  ticket.messages.push({ senderType: "admin", sender: adminId, text });
   ticket.status = "replied";
   ticket.assignedTo = adminId;
   ticket.repliedAt = new Date();
 
   await ticket.save();
 
-  res.json({
-    success: true,
-    ticket,
-    message: "Reply added successfully",
-  });
+  new ApiResponse(200, ticket, "Reply added successfully").send(res);
 });
 
 // ---------------------------------------------
@@ -112,60 +96,38 @@ export const userReplyToTicket = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   const ticket = await Contact.findById(id);
+  if (!ticket) throw ApiError.notFound("Ticket not found");
 
-  if (!ticket) {
-    return res.status(404).json({ message: "Ticket not found" });
-  }
-
-  ticket.messages.push({
-    senderType: "user",
-    sender: userId,
-    text,
-  });
-
+  ticket.messages.push({ senderType: "user", sender: userId, text });
   ticket.status = "open";
   ticket.repliedAt = null;
 
   await ticket.save();
 
-  res.json({ success: true, ticket });
+  new ApiResponse(200, ticket, "Reply added successfully").send(res);
 });
 
 // ---------------------------------------------
 // ADMIN: CLOSE TICKET
 // ---------------------------------------------
 export const closeTicket = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-
-  const ticket = await Contact.findById(id);
-
-  if (!ticket) {
-    return res.status(404).json({ message: "Ticket not found" });
-  }
+  const ticket = await Contact.findById(req.params.id);
+  if (!ticket) throw ApiError.notFound("Ticket not found");
 
   ticket.status = "closed";
   ticket.closedAt = new Date();
 
   await ticket.save();
 
-  res.json({
-    success: true,
-    message: "Ticket closed successfully",
-    ticket,
-  });
+  new ApiResponse(200, ticket, "Ticket closed successfully").send(res);
 });
 
 // ---------------------------------------------
 // ADMIN/USER: REOPEN TICKET
 // ---------------------------------------------
 export const reopenTicket = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-
-  const ticket = await Contact.findById(id);
-
-  if (!ticket) {
-    return res.status(404).json({ message: "Ticket not found" });
-  }
+  const ticket = await Contact.findById(req.params.id);
+  if (!ticket) throw ApiError.notFound("Ticket not found");
 
   ticket.status = "open";
   ticket.closedAt = null;
@@ -173,9 +135,5 @@ export const reopenTicket = asyncHandler(async (req, res) => {
 
   await ticket.save();
 
-  res.json({
-    success: true,
-    message: "Ticket reopened",
-    ticket,
-  });
+  new ApiResponse(200, ticket, "Ticket reopened successfully").send(res);
 });

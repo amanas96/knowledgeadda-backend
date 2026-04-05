@@ -1,4 +1,5 @@
 import asyncHandler from "express-async-handler";
+import ApiResponse from "../../utils/ApiResponse.js";
 import {
   getAllCoursesService,
   getCourseByIdService,
@@ -14,16 +15,14 @@ import {
   getSignedUrlService,
 } from "../services/courseService.js";
 
-/* ── tiny helper so every handler is one line ──────────────── */
-const send = (res, { status, body }) => res.status(status).json(body);
-
 // =============================================================================
 // @desc    Get all courses (paginated, sorted)
 // @route   GET /api/v1/courses
 // @access  Public
 // =============================================================================
 export const getAllCourses = asyncHandler(async (req, res) => {
-  send(res, await getAllCoursesService(req.query));
+  const data = await getAllCoursesService(req.query);
+  new ApiResponse(200, data, "Courses fetched successfully").send(res);
 });
 
 // =============================================================================
@@ -32,7 +31,8 @@ export const getAllCourses = asyncHandler(async (req, res) => {
 // @access  Public
 // =============================================================================
 export const getCourseById = asyncHandler(async (req, res) => {
-  send(res, await getCourseByIdService(req.params.courseId));
+  const course = await getCourseByIdService(req.params.courseId);
+  new ApiResponse(200, course, "Course fetched successfully").send(res);
 });
 
 // =============================================================================
@@ -41,7 +41,8 @@ export const getCourseById = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const createCourse = asyncHandler(async (req, res) => {
-  send(res, await createCourseService(req.body, req.user._id));
+  const course = await createCourseService(req.body, req.user._id);
+  new ApiResponse(201, course, "Course created successfully").send(res);
 });
 
 // =============================================================================
@@ -50,7 +51,8 @@ export const createCourse = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const updateCourse = asyncHandler(async (req, res) => {
-  send(res, await updateCourseService(req.params.courseId, req.body));
+  const course = await updateCourseService(req.params.courseId, req.body);
+  new ApiResponse(200, course, "Course updated successfully").send(res);
 });
 
 // =============================================================================
@@ -59,7 +61,12 @@ export const updateCourse = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const deleteCourse = asyncHandler(async (req, res) => {
-  send(res, await deleteCourseService(req.params.courseId));
+  await deleteCourseService(req.params.courseId);
+  new ApiResponse(
+    200,
+    null,
+    "Course and all related content deleted successfully",
+  ).send(res);
 });
 
 // =============================================================================
@@ -68,8 +75,9 @@ export const deleteCourse = asyncHandler(async (req, res) => {
 // @access  Private (Paywall)
 // =============================================================================
 export const getCourseContent = asyncHandler(async (req, res) => {
-  const isSubscribed = req.user?.isSubscribed || false;
-  send(res, await getCourseContentService(req.params.courseId, isSubscribed));
+  const isSubscribed = req.user?.isSubscribed ?? false;
+  const data = await getCourseContentService(req.params.courseId, isSubscribed);
+  new ApiResponse(200, data, "Course content fetched successfully").send(res);
 });
 
 // =============================================================================
@@ -78,15 +86,13 @@ export const getCourseContent = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const addContentToCourse = asyncHandler(async (req, res) => {
-  send(
-    res,
-    await addContentToCourseService(
-      req.params.courseId,
-      req.body,
-      req.file,
-      req.user._id,
-    ),
+  const content = await addContentToCourseService(
+    req.params.courseId,
+    req.body,
+    req.file,
+    req.user._id,
   );
+  new ApiResponse(201, content, "Content added successfully").send(res);
 });
 
 // =============================================================================
@@ -95,14 +101,12 @@ export const addContentToCourse = asyncHandler(async (req, res) => {
 // @access  Private (Paywall)
 // =============================================================================
 export const getSingleContentItem = asyncHandler(async (req, res) => {
-  send(
-    res,
-    await getSingleContentItemService(
-      req.params.courseId,
-      req.params.contentId,
-      req.user,
-    ),
+  const content = await getSingleContentItemService(
+    req.params.courseId,
+    req.params.contentId,
+    req.user,
   );
+  new ApiResponse(200, content, "Content fetched successfully").send(res);
 });
 
 // =============================================================================
@@ -111,13 +115,11 @@ export const getSingleContentItem = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const deleteContentFromCourse = asyncHandler(async (req, res) => {
-  send(
-    res,
-    await deleteContentFromCourseService(
-      req.params.courseId,
-      req.params.contentId,
-    ),
+  const data = await deleteContentFromCourseService(
+    req.params.courseId,
+    req.params.contentId,
   );
+  new ApiResponse(200, data, "Content deleted successfully").send(res);
 });
 
 // =============================================================================
@@ -126,15 +128,13 @@ export const deleteContentFromCourse = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const addAttachmentToContent = asyncHandler(async (req, res) => {
-  send(
-    res,
-    await addAttachmentToContentService(
-      req.params.courseId,
-      req.params.contentId,
-      req.body,
-      req.file,
-    ),
+  const content = await addAttachmentToContentService(
+    req.params.courseId,
+    req.params.contentId,
+    req.body,
+    req.file,
   );
+  new ApiResponse(200, content, "Attachment added successfully").send(res);
 });
 
 // =============================================================================
@@ -143,14 +143,12 @@ export const addAttachmentToContent = asyncHandler(async (req, res) => {
 // @access  Private/Admin
 // =============================================================================
 export const deleteAttachment = asyncHandler(async (req, res) => {
-  send(
-    res,
-    await deleteAttachmentService(
-      req.params.courseId,
-      req.params.contentId,
-      req.params.attachmentId,
-    ),
+  await deleteAttachmentService(
+    req.params.courseId,
+    req.params.contentId,
+    req.params.attachmentId,
   );
+  new ApiResponse(200, null, "Attachment deleted successfully").send(res);
 });
 
 // =============================================================================
@@ -159,12 +157,10 @@ export const deleteAttachment = asyncHandler(async (req, res) => {
 // @access  Private
 // =============================================================================
 export const getSignedUrl = asyncHandler(async (req, res) => {
-  send(
-    res,
-    await getSignedUrlService(
-      req.params.courseId,
-      req.params.contentId,
-      req.user,
-    ),
+  const data = await getSignedUrlService(
+    req.params.courseId,
+    req.params.contentId,
+    req.user,
   );
+  new ApiResponse(200, data, "Signed URLs fetched successfully").send(res);
 });

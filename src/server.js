@@ -23,6 +23,7 @@ import profileRouter from "./routes/profile.js";
 import adminRouter from "./routes/admin.js";
 import userRoutes from "./routes/userRoute.js";
 import { connectRedis } from "./config/redis.js";
+import { apiLogger } from "./middleware/apiLogger.js";
 
 //  validate env first
 validateEnv();
@@ -82,6 +83,7 @@ const authLimiter = rateLimit({
 });
 
 //  apply rate limiters
+app.use(apiLogger);
 app.use("/api", generalLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);

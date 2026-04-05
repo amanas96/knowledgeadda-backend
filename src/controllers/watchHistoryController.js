@@ -1,6 +1,12 @@
 import asyncHandler from "express-async-handler";
 import WatchHistory from "../models/watchHistoryModel.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 
+// ===============================
+// @desc    Update watch progress for a content item
+// @route   POST /api/v1/watch-progress
+// @access  Private
+// ===============================
 export const updateWatchProgress = asyncHandler(async (req, res) => {
   const { contentId, courseId, watchedMinutes } = req.body;
 
@@ -16,5 +22,5 @@ export const updateWatchProgress = asyncHandler(async (req, res) => {
     { upsert: true, new: true },
   );
 
-  res.json(entry);
+  new ApiResponse(200, entry, "Watch progress updated successfully").send(res);
 });

@@ -27,6 +27,9 @@ class ApiResponse {
 
   // ── Send directly from a controller ───────────────────────────────────────
   send(res) {
+    const json = this.toJSON();
+
+    console.log("API Response:", json);
     return res.status(this.statusCode).json(this.toJSON());
   }
 

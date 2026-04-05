@@ -15,10 +15,10 @@ import Course from "../models/courseModel.js";
 import Content from "../models/contentModel.js";
 import WatchHistory from "../models/watchHistoryModel.js";
 import QuizAttempt from "../models/quizAttempt.js";
-import { ApiError } from "../../utils/apiError.js";
+import { ApiError } from "../../utils/ApiError.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 
-// ─── Cookie options ───────────────────────────────────────────────────────────
-const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 const cookieOptions = {
   httpOnly: true,
@@ -27,125 +27,6 @@ const cookieOptions = {
   maxAge: REFRESH_TOKEN_EXPIRY_MS,
 };
 
-// ─── Helper: generate tokens, save to DB, set cookie, send response ───────────
-const sendTokenResponse = async (user, statusCode, res) => {
-  const accessToken = generateAccessToken(user);
-  const refreshToken = generateRefreshToken(user._id);
-
-  // save refresh token to DB
-  await Token.create({
-    userId: user._id,
-    token: refreshToken,
-    type: "refresh",
-    expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
-  });
-
-  // set refresh token as httpOnly cookie — never exposed to JS
-  res.cookie("refreshToken", refreshToken, cookieOptions);
-
-  // send access token in response body — stored in AuthContext memory only
-  res.status(statusCode).json({
-    accessToken,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-    },
-  });
-};
-
-// ─── Register ─────────────────────────────────────────────────────────────────
-export const registerUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  const { name, email, password } = req.body;
-
-  const userExists = await User.findOne({ email });
-  if (userExists) {
-    return res.status(400).json({ message: "User already exists" });
-  }
-
-  const user = await User.create({ name, email, password, isAdmin: false });
-
-  await sendTokenResponse(user, 201, res); // ← uses cookie
-});
-
-// ─── Login ────────────────────────────────────────────────────────────────────
-export const loginUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-
-  if (!user || !(await user.matchPassword(password))) {
-    res.status(401);
-    throw new Error("Invalid email or password");
-  }
-
-  await sendTokenResponse(user, 200, res); // ← uses cookie
-});
-
-// ─── Refresh access token ─────────────────────────────────────────────────────
-export const refreshAccessToken = asyncHandler(async (req, res) => {
-  // read from cookie — NOT from req.body anymore
-  const refreshToken = req.cookies.refreshToken;
-
-  if (!refreshToken) {
-    res.status(401);
-    throw new ApiError(401, "No refresh token provided");
-  }
-
-  const tokenDoc = await Token.findOne({
-    token: refreshToken,
-    type: "refresh",
-  });
-  if (!tokenDoc) {
-    res.status(401);
-    throw new Error("Invalid refresh token");
-  }
-
-  try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-
-    if (tokenDoc.userId.toString() !== decoded.id) {
-      await Token.deleteOne({ _id: tokenDoc._id });
-      return res.status(403).json({ message: "Token integrity error" });
-    }
-
-    const user = await User.findById(decoded.id).select("-password");
-    if (!user) {
-      res.status(401);
-      throw new Error("User not found");
-    }
-
-    const isSubscribed = await getSubscriptionStatus(user._id);
-    const accessToken = generateAccessToken(user);
-
-    res.status(200).json({
-      accessToken,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-        isSubscribed,
-      },
-    });
-  } catch (error) {
-    res.status(401);
-    throw new Error("Refresh token is invalid or expired");
-  }
-});
-
-// ─── Logout ───────────────────────────────────────────────────────────────────
-// a cleaner way — define clear options separately
 const clearCookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
@@ -154,20 +35,135 @@ const clearCookieOptions = {
   path: "/",
 };
 
+// ─── sendTokenResponse: custom shape — DO NOT wrap in ApiResponse ─────────────
+// Frontend AuthContext reads accessToken and user directly from response body.
+// Changing this shape would break the entire auth flow.
+const sendTokenResponse = async (user, statusCode, res) => {
+  const accessToken = generateAccessToken(user);
+  const refreshToken = generateRefreshToken(user._id);
+
+  await Token.create({
+    userId: user._id,
+    token: refreshToken,
+    type: "refresh",
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
+  });
+
+  res.cookie("refreshToken", refreshToken, cookieOptions);
+
+  new ApiResponse(
+    statusCode,
+    {
+      accessToken,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        isAdmin: user.isAdmin,
+      },
+    },
+    statusCode === 201 ? "Registered successfully" : "Logged in successfully",
+  ).send(res);
+};
+
+// ─── Register ─────────────────────────────────────────────────────────────────
+export const registerUser = asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError(400, "Validation failed", errors.array());
+  }
+
+  const { name, email, password } = req.body;
+
+  const userExists = await User.findOne({ email });
+  if (userExists) throw ApiError.conflict("User already exists");
+
+  const user = await User.create({ name, email, password, isAdmin: false });
+
+  await sendTokenResponse(user, 201, res);
+});
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+export const loginUser = asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError(400, "Validation failed", errors.array());
+  }
+
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+
+  if (!user || !(await user.matchPassword(password))) {
+    throw ApiError.unauthorized("Invalid email or password");
+  }
+
+  await sendTokenResponse(user, 200, res);
+});
+
+// ─── Refresh access token ─────────────────────────────────────────────────────
+// Response shape intentionally kept raw — AuthContext reads accessToken and
+// user directly. Wrapping in ApiResponse would break the frontend auth flow.
+export const refreshAccessToken = asyncHandler(async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  if (!refreshToken) throw ApiError.unauthorized("No refresh token provided");
+
+  const tokenDoc = await Token.findOne({
+    token: refreshToken,
+    type: "refresh",
+  });
+  if (!tokenDoc) throw ApiError.unauthorized("Invalid refresh token");
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    if (tokenDoc.userId.toString() !== decoded.id) {
+      await Token.deleteOne({ _id: tokenDoc._id });
+      throw ApiError.forbidden("Token integrity error");
+    }
+
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) throw ApiError.unauthorized("User not found");
+
+    const isSubscribed = await getSubscriptionStatus(user._id);
+    const accessToken = generateAccessToken(user);
+
+    new ApiResponse(
+      200,
+      {
+        accessToken,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          isAdmin: user.isAdmin,
+          isSubscribed,
+        },
+      },
+      "Access token refreshed successfully",
+    ).send(res);
+  } catch (error) {
+    if (error.isOperational) throw error;
+    throw ApiError.unauthorized("Refresh token is invalid or expired");
+  }
+});
+
+// ─── Logout ───────────────────────────────────────────────────────────────────
 export const logoutUser = asyncHandler(async (req, res) => {
   const refreshToken = req.cookies.refreshToken;
   if (refreshToken) {
     await Token.deleteOne({ token: refreshToken, type: "refresh" });
   }
   res.clearCookie("refreshToken", clearCookieOptions);
-  res.json({ message: "Logged out successfully" });
+  new ApiResponse(200, null, "Logged out successfully").send(res);
 });
 
 // ─── Logout all devices ───────────────────────────────────────────────────────
 export const logoutAllDevices = asyncHandler(async (req, res) => {
   await Token.deleteMany({ userId: req.user._id, type: "refresh" });
   res.clearCookie("refreshToken", clearCookieOptions);
-  res.status(200).json({ message: "Logged out from all devices successfully" });
+  new ApiResponse(200, null, "Logged out from all devices successfully").send(
+    res,
+  );
 });
 
 // ─── Get user profile ─────────────────────────────────────────────────────────
@@ -201,13 +197,20 @@ export const getUserProfile = asyncHandler(async (req, res) => {
       .populate("course", "title")
       .sort({ createdAt: -1 });
 
-    return res.json({
-      role: "admin",
-      user: userObject,
-      stats: { totalCourses: myCourses.length, totalContent: myContent.length },
-      myCourses,
-      myContent,
-    });
+    return new ApiResponse(
+      200,
+      {
+        role: "admin",
+        user: userObject,
+        stats: {
+          totalCourses: myCourses.length,
+          totalContent: myContent.length,
+        },
+        myCourses,
+        myContent,
+      },
+      "Profile fetched successfully",
+    ).send(res);
   }
 
   const watchHistory = await WatchHistory.find({ user: req.user._id })
@@ -220,39 +223,45 @@ export const getUserProfile = asyncHandler(async (req, res) => {
     status: "completed",
   });
 
-  return res.json({
-    role: "student",
-    user: userObject,
-    stats: {
-      totalWatchTime: watchHistory.reduce(
-        (s, e) => s + (e.watchedMinutes || 0),
-        0,
-      ),
-      totalWatchedContents: watchHistory.length,
-      quizzesCompleted: quizAttempts.length,
-      totalQuizScore: quizAttempts.reduce((s, a) => s + a.score, 0),
-      avgQuizPercentage:
-        quizAttempts.length > 0
-          ? Math.round(
-              quizAttempts.reduce((s, q) => s + q.percentage, 0) /
-                quizAttempts.length,
-            )
-          : 0,
+  return new ApiResponse(
+    200,
+    {
+      role: "student",
+      user: userObject,
+      stats: {
+        totalWatchTime: watchHistory.reduce(
+          (s, e) => s + (e.watchedMinutes || 0),
+          0,
+        ),
+        totalWatchedContents: watchHistory.length,
+        quizzesCompleted: quizAttempts.length,
+        totalQuizScore: quizAttempts.reduce((s, a) => s + a.score, 0),
+        avgQuizPercentage:
+          quizAttempts.length > 0
+            ? Math.round(
+                quizAttempts.reduce((s, q) => s + q.percentage, 0) /
+                  quizAttempts.length,
+              )
+            : 0,
+      },
+      watchHistory,
+      quizAttempts,
     },
-    watchHistory,
-    quizAttempts,
-  });
+    "Profile fetched successfully",
+  ).send(res);
 });
 
 // ─── Forgot password ──────────────────────────────────────────────────────────
 export const forgotPassword = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty())
-    return res.status(400).json({ errors: errors.array() });
+  if (!errors.isEmpty()) {
+    throw new ApiError(400, "Validation failed", errors.array());
+  }
 
   const { email } = req.body;
   const user = await User.findOne({ email });
 
+  // Intentionally vague — never reveal whether email exists
   if (user) {
     const resetToken = generateResetToken(user._id);
     await Token.create({
@@ -265,45 +274,42 @@ export const forgotPassword = asyncHandler(async (req, res) => {
     await sendPasswordResetEmail(user.email, resetUrl);
   }
 
-  return res.status(200).json({
-    success: true,
-    message:
-      "If an account with this email exists, a reset link has been sent.",
-  });
+  new ApiResponse(
+    200,
+    null,
+    "If an account with this email exists, a reset link has been sent.",
+  ).send(res);
 });
 
 // ─── Reset password ───────────────────────────────────────────────────────────
 export const resetPassword = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty())
-    return res.status(400).json({ errors: errors.array() });
+  if (!errors.isEmpty()) {
+    throw new ApiError(400, "Validation failed", errors.array());
+  }
 
   const { token } = req.params;
   const { password } = req.body;
 
   const tokenDoc = await Token.findOne({ token, type: "reset" });
   if (!tokenDoc || tokenDoc.expiresAt < new Date()) {
-    res.status(400);
-    throw new Error("Token is invalid or has expired");
+    throw ApiError.badRequest("Token is invalid or has expired");
   }
 
   const user = await User.findById(tokenDoc.userId);
-  if (!user) {
-    res.status(400);
-    throw new Error("User not found");
-  }
+  if (!user) throw ApiError.badRequest("User not found");
 
   user.password = password;
   await user.save();
   await Token.deleteOne({ _id: tokenDoc._id });
 
-  res.json({ message: "Password reset successfully" });
+  new ApiResponse(200, null, "Password reset successfully").send(res);
 });
 
 // ─── Update profile ───────────────────────────────────────────────────────────
 export const updateUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
-  if (!user) return res.status(404).json({ message: "User not found" });
+  if (!user) throw ApiError.notFound("User not found");
 
   const fields = [
     "phone",
@@ -319,9 +325,10 @@ export const updateUserProfile = asyncHandler(async (req, res) => {
   });
 
   const updatedUser = await user.save();
-  res.json({
-    message: "Profile updated successfully",
-    updatedProfile: {
+
+  new ApiResponse(
+    200,
+    {
       name: updatedUser.name,
       phone: updatedUser.phone,
       address: updatedUser.address,
@@ -330,5 +337,6 @@ export const updateUserProfile = asyncHandler(async (req, res) => {
       pinCode: updatedUser.pinCode,
       landmark: updatedUser.landmark,
     },
-  });
+    "Profile updated successfully",
+  ).send(res);
 });

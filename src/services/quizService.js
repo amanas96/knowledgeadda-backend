@@ -9,6 +9,7 @@ import {
 } from "../helper/cacheHelper.js";
 import { findCourseBySlugOrId } from "../helper/courseHelper.js";
 import { partitionQuestions, buildBulkSummary } from "../helper/quizHelper.js";
+import { ApiError } from "../../utils/ApiError.js";
 import * as repo from "../repository/quizRepository.js";
 
 /* ============================================================
@@ -33,49 +34,37 @@ export const createQuizService = async (body, userId) => {
   } = body;
 
   if (!title?.trim()) {
-    return { status: 400, body: { message: "Title is required" } };
+    throw ApiError.badRequest("Title is required");
   }
 
   if (category === "Other" && !customCategory?.trim()) {
-    return {
-      status: 400,
-      body: { message: "customCategory is required when category is 'Other'" },
-    };
+    throw ApiError.badRequest(
+      "customCategory is required when category is 'Other'",
+    );
   }
 
   const effectiveType = courseId ? "course" : quizType || "standalone";
 
   if (quizType && courseId && quizType !== "course") {
-    return {
-      status: 400,
-      body: {
-        message: `quizType must be 'course' when courseId is provided, got '${quizType}'`,
-      },
-    };
+    throw ApiError.badRequest(
+      `quizType must be 'course' when courseId is provided, got '${quizType}'`,
+    );
   }
   if (quizType === "course" && !courseId) {
-    return {
-      status: 400,
-      body: { message: "courseId is required when quizType is 'course'" },
-    };
+    throw ApiError.badRequest("courseId is required when quizType is 'course'");
   }
 
   // Validate questions up-front — fail fast before any DB work
   const incomingQuestions = Array.isArray(questions) ? questions : [];
   const { valid: validQuestions, invalid: invalidQuestions } =
-    partitionQuestions(incomingQuestions, null); // quizId filled in after creation
+    partitionQuestions(incomingQuestions, null);
 
   if (invalidQuestions.length > 0) {
-    return {
-      status: 400,
-      body: {
-        message: "Quiz not created — one or more questions failed validation.",
-        questionErrors: invalidQuestions.map(({ index, errors }) => ({
-          index,
-          errors,
-        })),
-      },
-    };
+    throw new ApiError(
+      400,
+      "Quiz not created — one or more questions failed validation.",
+      invalidQuestions.map(({ index, errors }) => ({ index, errors })),
+    );
   }
 
   const [course, existingQuiz] = await Promise.all([
@@ -84,17 +73,15 @@ export const createQuizService = async (body, userId) => {
   ]);
 
   if (courseId && !course) {
-    return { status: 404, body: { message: "Course not found" } };
+    throw ApiError.notFound("Course not found");
   }
+
   if (existingQuiz) {
-    return {
-      status: 400,
-      body: {
-        message: courseId
-          ? "A quiz with this title already exists for this course."
-          : `A ${effectiveType} quiz with this title already exists.`,
-      },
-    };
+    throw ApiError.badRequest(
+      courseId
+        ? "A quiz with this title already exists for this course."
+        : `A ${effectiveType} quiz with this title already exists.`,
+    );
   }
 
   const session = await mongoose.startSession();
@@ -123,7 +110,6 @@ export const createQuizService = async (body, userId) => {
 
     let insertedQuestions = [];
     if (incomingQuestions.length > 0) {
-      // Re-build docs now that we have quiz._id
       const { valid: docsWithId } = partitionQuestions(
         incomingQuestions,
         quiz._id,
@@ -136,22 +122,18 @@ export const createQuizService = async (body, userId) => {
     await invalidateQuizListCache();
 
     return {
-      status: 201,
-      body: {
-        quiz,
-        questions: insertedQuestions,
-        questionsAdded: insertedQuestions.length,
-      },
+      quiz,
+      questions: insertedQuestions,
+      questionsAdded: insertedQuestions.length,
     };
   } catch (err) {
     await session.abortTransaction();
     session.endSession();
 
     if (err.code === 11000 && err.keyPattern?.slug) {
-      return {
-        status: 400,
-        body: { message: "This slug is already taken. Please choose another." },
-      };
+      throw ApiError.badRequest(
+        "This slug is already taken. Please choose another.",
+      );
     }
     throw err;
   }
@@ -173,7 +155,7 @@ export const getAllQuizzesService = async (query) => {
     return repo.getQuizzesListPipeline(filter, page, limit);
   });
 
-  return { status: 200, body: quizzes };
+  return quizzes;
 };
 
 /* ============================================================
@@ -181,10 +163,10 @@ export const getAllQuizzesService = async (query) => {
 ============================================================ */
 export const getQuizByIdService = async (quizId) => {
   const quiz = await repo.findQuizWithCourse(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   const totalQuestions = await repo.countQuestionsByQuiz(quiz._id);
-  return { status: 200, body: { ...quiz, totalQuestions } };
+  return { ...quiz, totalQuestions };
 };
 
 /* ============================================================
@@ -192,7 +174,7 @@ export const getQuizByIdService = async (quizId) => {
 ============================================================ */
 export const getQuizzesForCourseService = async (courseId) => {
   const course = await findCourseBySlugOrId(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   const cacheKey = `quizzes:course:${course._id}`;
 
@@ -206,7 +188,7 @@ export const getQuizzesForCourseService = async (courseId) => {
     );
   });
 
-  return { status: 200, body: quizzesWithCount };
+  return quizzesWithCount;
 };
 
 /* ============================================================
@@ -230,8 +212,8 @@ export const getQuizQuestionsService = async (quizId) => {
     },
   );
 
-  if (!payload) return { status: 404, body: { message: "Quiz not found" } };
-  return { status: 200, body: payload };
+  if (!payload) throw ApiError.notFound("Quiz not found");
+  return payload;
 };
 
 /* ============================================================
@@ -239,24 +221,18 @@ export const getQuizQuestionsService = async (quizId) => {
 ============================================================ */
 export const getQuizAttemptStatusService = async (quizId, user) => {
   const quiz = await repo.findQuizForStatus(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   if (quiz.isPremium && !user.isSubscribed) {
-    return {
-      status: 403,
-      body: { message: "Premium quiz. Subscription required." },
-    };
+    throw ApiError.forbidden("Premium quiz. Subscription required.");
   }
 
   const previousAttempt = await repo.findPreviousAttempt(user._id, quiz._id);
 
   return {
-    status: 200,
-    body: {
-      hasAttempted: !!previousAttempt,
-      allowMultipleAttempts: quiz.allowMultipleAttempts,
-      lastAttempt: previousAttempt || null,
-    },
+    hasAttempted: !!previousAttempt,
+    allowMultipleAttempts: quiz.allowMultipleAttempts,
+    lastAttempt: previousAttempt || null,
   };
 };
 
@@ -269,22 +245,19 @@ export const submitQuizService = async (
   user,
 ) => {
   if (!Array.isArray(answers) || answers.length === 0) {
-    return { status: 400, body: { message: "Answers are required." } };
+    throw ApiError.badRequest("Answers are required.");
   }
 
   const quiz = await repo.findQuizForSubmit(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   if (quiz.isPremium && !user.isSubscribed) {
-    return {
-      status: 403,
-      body: { message: "Premium quiz. Subscription required." },
-    };
+    throw ApiError.forbidden("Premium quiz. Subscription required.");
   }
 
   const allQuestions = await repo.getAllQuestions(quiz._id);
   if (!allQuestions.length) {
-    return { status: 400, body: { message: "No questions in this quiz." } };
+    throw ApiError.badRequest("No questions in this quiz.");
   }
 
   // Score the submission
@@ -315,15 +288,12 @@ export const submitQuizService = async (
       Math.min((score / allQuestions.length) * 100, 100).toFixed(2),
     );
     return {
-      status: 200,
-      body: {
-        isRetry: true,
-        score,
-        totalQuestions: allQuestions.length,
-        percentage,
-        answers: detailedResults,
-        message: "Retry attempt — score not saved",
-      },
+      isRetry: true,
+      score,
+      totalQuestions: allQuestions.length,
+      percentage,
+      answers: detailedResults,
+      message: "Retry attempt — score not saved",
     };
   }
 
@@ -347,13 +317,7 @@ export const submitQuizService = async (
   await cacheDelPattern(`leaderboard:quiz:${quiz._id}`);
   await cacheDel("leaderboard:global");
 
-  return {
-    status: 201,
-    body: {
-      message: "Quiz submitted successfully.",
-      attempt: populatedAttempt,
-    },
-  };
+  return { attempt: populatedAttempt };
 };
 
 /* ============================================================
@@ -361,10 +325,9 @@ export const submitQuizService = async (
 ============================================================ */
 export const getAttemptHistoryService = async (quizId, userId) => {
   const quiz = await repo.findQuizForStatus(quizId).lean();
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
-  const history = await repo.getAttemptHistoryDb(userId, quiz._id);
-  return { status: 200, body: history };
+  return repo.getAttemptHistoryDb(userId, quiz._id);
 };
 
 /* ============================================================
@@ -372,13 +335,12 @@ export const getAttemptHistoryService = async (quizId, userId) => {
 ============================================================ */
 export const reviewQuizService = async (quizId, attemptNum, user) => {
   const quiz = await repo.findQuizForReview(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   if (quiz.isPremium && !user.isSubscribed) {
-    return {
-      status: 403,
-      body: { message: "Review locked. Subscribe to unlock premium quizzes." },
-    };
+    throw ApiError.forbidden(
+      "Review locked. Subscribe to unlock premium quizzes.",
+    );
   }
 
   const query = { user: user._id, quiz: quiz._id };
@@ -391,8 +353,7 @@ export const reviewQuizService = async (quizId, attemptNum, user) => {
     quizAttempt = await repo.getAttemptForReview(query);
   }
 
-  if (!quizAttempt)
-    return { status: 404, body: { message: "Attempt not found" } };
+  if (!quizAttempt) throw ApiError.notFound("Attempt not found");
 
   const validAnswers = (quizAttempt.answers || []).filter(
     (ans) => ans.question !== null,
@@ -403,22 +364,19 @@ export const reviewQuizService = async (quizId, attemptNum, user) => {
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
 
   return {
-    status: 200,
-    body: {
-      quizTitle: quiz.title,
-      totalQuestions: total,
-      score,
-      percentage,
-      answers: validAnswers.map((ans) => ({
-        question: ans.question?.text,
-        options: ans.question?.options,
-        userAnswer: ans.userAnswer,
-        correctAnswer: ans.correctAnswer,
-        explanation: ans.question?.explanation,
-        isCorrect: ans.isCorrect,
-        marks: ans.question?.marks,
-      })),
-    },
+    quizTitle: quiz.title,
+    totalQuestions: total,
+    score,
+    percentage,
+    answers: validAnswers.map((ans) => ({
+      question: ans.question?.text,
+      options: ans.question?.options,
+      userAnswer: ans.userAnswer,
+      correctAnswer: ans.correctAnswer,
+      explanation: ans.question?.explanation,
+      isCorrect: ans.isCorrect,
+      marks: ans.question?.marks,
+    })),
   };
 };
 
@@ -427,13 +385,12 @@ export const reviewQuizService = async (quizId, attemptNum, user) => {
 ============================================================ */
 export const updateQuizService = async (quizId, updates) => {
   const quiz = await repo.findQuiz(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   if (updates.category === "Other" && !updates.customCategory) {
-    return {
-      status: 400,
-      body: { message: "customCategory is required when category is Other" },
-    };
+    throw ApiError.badRequest(
+      "customCategory is required when category is Other",
+    );
   }
 
   if (updates.category && updates.category !== "Other") {
@@ -443,17 +400,16 @@ export const updateQuizService = async (quizId, updates) => {
   if (updates.slug && updates.slug !== quiz.slug) {
     const existingSlug = await repo.findQuizBySlug(updates.slug);
     if (existingSlug) {
-      return {
-        status: 400,
-        body: { message: "This slug is already taken. Please choose another." },
-      };
+      throw ApiError.badRequest(
+        "This slug is already taken. Please choose another.",
+      );
     }
   }
 
   await repo.updateQuizDb(quiz, updates);
   await invalidateQuizCache(quiz._id, quiz.slug);
 
-  return { status: 200, body: { message: "Quiz updated", quiz } };
+  return quiz;
 };
 
 /* ============================================================
@@ -461,12 +417,10 @@ export const updateQuizService = async (quizId, updates) => {
 ============================================================ */
 export const deleteQuizService = async (quizId) => {
   const quiz = await repo.findQuiz(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   await repo.deleteQuizDb(quiz);
   await invalidateQuizCache(quiz._id, quiz.slug);
-
-  return { status: 200, body: { message: "Quiz deleted successfully" } };
 };
 
 /* ============================================================
@@ -474,27 +428,25 @@ export const deleteQuizService = async (quizId) => {
 ============================================================ */
 export const addQuestionToQuizService = async (quizId, body) => {
   const quiz = await repo.findQuiz(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   const incoming = Array.isArray(body.questions) ? body.questions : [body];
 
   if (incoming.length === 0) {
-    return { status: 400, body: { message: "No questions provided." } };
+    throw ApiError.badRequest("No questions provided.");
   }
   if (incoming.length > 200) {
-    return { status: 400, body: { message: "Max 200 questions per request." } };
+    throw ApiError.badRequest("Max 200 questions per request.");
   }
 
   const { valid, invalid } = partitionQuestions(incoming, quiz._id);
 
   if (valid.length === 0) {
-    return {
-      status: 400,
-      body: {
-        message: "All questions failed validation. Nothing was saved.",
-        failed: invalid,
-      },
-    };
+    throw new ApiError(
+      400,
+      "All questions failed validation. Nothing was saved.",
+      invalid,
+    );
   }
 
   const { inserted, dbErrors } = await repo.bulkInsertQuestions(valid);
@@ -517,26 +469,28 @@ export const addQuestionToQuizService = async (quizId, body) => {
     dbErrors,
   );
 
+  // buildBulkSummary may return 400 if everything failed — throw in that case
+  if (statusCode >= 400) {
+    throw new ApiError(statusCode, summary, [...invalid, ...dbErrors]);
+  }
+
   return {
-    status: statusCode,
-    body: {
-      summary,
-      inserted: inserted.map((q) => ({
-        _id: q._id,
-        text: q.text,
-        options: q.options,
-        correctAnswer: q.correctAnswer,
-        marks: q.marks,
+    summary,
+    inserted: inserted.map((q) => ({
+      _id: q._id,
+      text: q.text,
+      options: q.options,
+      correctAnswer: q.correctAnswer,
+      marks: q.marks,
+    })),
+    ...(invalid.length > 0 && {
+      validationErrors: invalid.map(({ index, input, errors }) => ({
+        index,
+        text: input?.text || null,
+        errors,
       })),
-      ...(invalid.length > 0 && {
-        validationErrors: invalid.map(({ index, input, errors }) => ({
-          index,
-          text: input?.text || null,
-          errors,
-        })),
-      }),
-      ...(dbErrors.length > 0 && { dbErrors }),
-    },
+    }),
+    ...(dbErrors.length > 0 && { dbErrors }),
   };
 };
 
@@ -545,23 +499,21 @@ export const addQuestionToQuizService = async (quizId, body) => {
 ============================================================ */
 export const updateQuestionService = async (quizId, questionId, updates) => {
   const quiz = await repo.findQuiz(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   const question = await repo.findQuestion(questionId, quiz._id);
-  if (!question)
-    return { status: 404, body: { message: "Question not found" } };
+  if (!question) throw ApiError.notFound("Question not found");
 
   if (updates.options && !updates.options.includes(updates.correctAnswer)) {
-    return {
-      status: 400,
-      body: { message: "Correct answer must be one of the updated options" },
-    };
+    throw ApiError.badRequest(
+      "Correct answer must be one of the updated options",
+    );
   }
 
   await repo.updateQuestionDb(question, updates);
   await invalidateQuizCache(quiz._id, quiz.slug);
 
-  return { status: 200, body: { message: "Question updated", question } };
+  return question;
 };
 
 /* ============================================================
@@ -569,14 +521,11 @@ export const updateQuestionService = async (quizId, questionId, updates) => {
 ============================================================ */
 export const deleteQuestionService = async (questionId) => {
   const question = await repo.findQuestionById(questionId);
-  if (!question)
-    return { status: 404, body: { message: "Question not found" } };
+  if (!question) throw ApiError.notFound("Question not found");
 
   const marksToRemove = question.marks || 0;
   await repo.updateQuizDecreaseMarks(question.quiz, marksToRemove);
   await invalidateQuizCache(question.quiz);
-
-  return { status: 200, body: { message: "Question deleted successfully" } };
 };
 
 /* ============================================================
@@ -584,9 +533,8 @@ export const deleteQuestionService = async (questionId) => {
 ============================================================ */
 export const getAdminSingleQuestionService = async (questionId) => {
   const question = await repo.findQuestionByIdLean(questionId);
-  if (!question)
-    return { status: 404, body: { message: "Question not found" } };
-  return { status: 200, body: question };
+  if (!question) throw ApiError.notFound("Question not found");
+  return question;
 };
 
 /* ============================================================
@@ -599,14 +547,13 @@ export const getQuizLeaderboardService = async (quizId) => {
     async () => {
       const quiz = await repo.findQuiz(quizId);
       if (!quiz) return null;
-
       const leaderboard = await repo.quizLeaderboardAggregation(quiz._id);
       return { quizTitle: quiz.title, leaderboard };
     },
   );
 
-  if (!data) return { status: 404, body: { message: "Quiz not found" } };
-  return { status: 200, body: data };
+  if (!data) throw ApiError.notFound("Quiz not found");
+  return data;
 };
 
 /* ============================================================
@@ -618,7 +565,7 @@ export const getGlobalLeaderboardService = async () => {
     TTL.leaderboard,
     () => repo.globalLeaderboardAggregation(),
   );
-  return { status: 200, body: { leaderboard } };
+  return { leaderboard };
 };
 
 /* ============================================================
@@ -626,21 +573,18 @@ export const getGlobalLeaderboardService = async () => {
 ============================================================ */
 export const addQuestionToExistingQuizService = async (quizId, body) => {
   const quiz = await repo.findQuiz(quizId);
-  if (!quiz) return { status: 404, body: { message: "Quiz not found" } };
+  if (!quiz) throw ApiError.notFound("Quiz not found");
 
   const incoming = Array.isArray(body.questions) ? body.questions : [body];
 
   if (incoming.length === 0 || (incoming.length === 1 && !incoming[0].text)) {
-    return { status: 400, body: { message: "No valid questions provided." } };
+    throw ApiError.badRequest("No valid questions provided.");
   }
 
   const { valid, invalid } = partitionQuestions(incoming, quiz._id);
 
   if (valid.length === 0) {
-    return {
-      status: 400,
-      body: { message: "All questions failed validation.", failed: invalid },
-    };
+    throw new ApiError(400, "All questions failed validation.", invalid);
   }
 
   const session = await mongoose.startSession();
@@ -659,17 +603,13 @@ export const addQuestionToExistingQuizService = async (quizId, body) => {
     await invalidateQuizCache(quiz._id, quiz.slug);
 
     return {
-      status: 201,
-      body: {
-        status: "success",
-        summary: {
-          requested: incoming.length,
-          added: insertedDocs.length,
-          failed: invalid.length,
-        },
-        newTotalMarks: quiz.totalMarks + newMarks,
-        invalidQuestions: invalid.length > 0 ? invalid : undefined,
+      summary: {
+        requested: incoming.length,
+        added: insertedDocs.length,
+        failed: invalid.length,
       },
+      newTotalMarks: quiz.totalMarks + newMarks,
+      ...(invalid.length > 0 && { invalidQuestions: invalid }),
     };
   } catch (err) {
     await session.abortTransaction();

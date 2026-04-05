@@ -16,6 +16,7 @@ import {
   getFileType,
   buildSlug,
 } from "../helper/courseHelper.js";
+import { ApiError } from "../../utils/ApiError.js";
 import * as repo from "../repository/courseRepository.js";
 
 /* ============================================================
@@ -42,7 +43,7 @@ export const getAllCoursesService = async (query) => {
 
   const cacheKey = `courses:all:${page}:${limit}:${sortBy}:${sortOrder}`;
   const cached = await cacheGet(cacheKey);
-  if (cached) return { status: 200, body: { ...cached, source: "cache" } };
+  if (cached) return { ...cached, source: "cache" };
 
   const [courses, total] = await Promise.all([
     repo.getCourseListDb(sortBy, sortOrder, skip, limit),
@@ -66,7 +67,7 @@ export const getAllCoursesService = async (query) => {
     console.warn("[getAllCoursesService] Cache write failed:", err.message);
   }
 
-  return { status: 200, body: { ...payload, source: "db" } };
+  return { ...payload, source: "db" };
 };
 
 /* ============================================================
@@ -74,8 +75,8 @@ export const getAllCoursesService = async (query) => {
 ============================================================ */
 export const getCourseByIdService = async (courseId) => {
   const course = await getCachedCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
-  return { status: 200, body: course };
+  if (!course) throw ApiError.notFound("Course not found");
+  return course;
 };
 
 /* ============================================================
@@ -85,10 +86,9 @@ export const createCourseService = async (body, userId) => {
   const { title, description, thumbnailUrl, tags } = body;
 
   if (!title || !description || !thumbnailUrl) {
-    return {
-      status: 400,
-      body: { message: "Please provide title, description, and thumbnailUrl" },
-    };
+    throw ApiError.badRequest(
+      "Please provide title, description, and thumbnailUrl",
+    );
   }
 
   const course = await repo.createCourseDb({
@@ -101,7 +101,7 @@ export const createCourseService = async (body, userId) => {
 
   await invalidateCourseListCache();
 
-  return { status: 201, body: course };
+  return course;
 };
 
 /* ============================================================
@@ -109,7 +109,7 @@ export const createCourseService = async (body, userId) => {
 ============================================================ */
 export const updateCourseService = async (courseId, body) => {
   const course = await repo.findCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   const { title, description, thumbnailUrl, tags } = body;
 
@@ -129,7 +129,7 @@ export const updateCourseService = async (courseId, body) => {
     invalidateCourseListCache(),
   ]);
 
-  return { status: 200, body: updatedCourse };
+  return updatedCourse;
 };
 
 /* ============================================================
@@ -145,7 +145,7 @@ export const deleteCourseService = async (courseId) => {
     if (!course) {
       await session.abortTransaction();
       session.endSession();
-      return { status: 404, body: { message: "Course not found" } };
+      throw ApiError.notFound("Course not found");
     }
 
     const quizzes = await repo.findQuizzesByCourse(course._id, session);
@@ -171,14 +171,11 @@ export const deleteCourseService = async (courseId) => {
       invalidateCourseListCache(),
       invalidateCourseContentCache(course._id),
     ]);
-
-    return {
-      status: 200,
-      body: { message: "Course and all related content deleted successfully" },
-    };
   } catch (error) {
     await session.abortTransaction();
     session.endSession();
+    // Re-throw ApiError as-is; wrap unexpected errors
+    if (error.isOperational) throw error;
     throw new Error(`Failed to delete course: ${error.message}`);
   }
 };
@@ -188,7 +185,7 @@ export const deleteCourseService = async (courseId) => {
 ============================================================ */
 export const getCourseContentService = async (courseId, isSubscribed) => {
   const course = await getCachedCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   const payload = await withCache(
     `course:${course._id}:content:${isSubscribed}`,
@@ -212,7 +209,7 @@ export const getCourseContentService = async (courseId, isSubscribed) => {
     },
   );
 
-  return { status: 200, body: payload };
+  return payload;
 };
 
 /* ============================================================
@@ -228,7 +225,7 @@ export const addContentToCourseService = async (
 
   try {
     const course = await getCachedCourse(courseId);
-    if (!course) return { status: 404, body: { message: "Course not found" } };
+    if (!course) throw ApiError.notFound("Course not found");
 
     const {
       title,
@@ -239,9 +236,7 @@ export const addContentToCourseService = async (
       attachmentUrl,
     } = body;
 
-    if (!title) {
-      return { status: 400, body: { message: "Please provide title" } };
-    }
+    if (!title) throw ApiError.badRequest("Please provide title");
 
     let video;
     let attachments = [];
@@ -250,25 +245,18 @@ export const addContentToCourseService = async (
       const fileType = getFileType(file.mimetype);
 
       if (file.size > MAX_FILE_SIZE) {
-        return {
-          status: 400,
-          body: { message: "File size exceeds 200MB limit" },
-        };
+        throw ApiError.badRequest("File size exceeds 200MB limit");
       }
 
       const allowed = ALLOWED_MIME_TYPES[fileType];
       if (allowed && !allowed.includes(file.mimetype)) {
-        return { status: 400, body: { message: "Invalid file type" } };
+        throw ApiError.badRequest("Invalid file type");
       }
 
       if (fileType === "pdf" && isPasswordProtectedPdf(localFilePath)) {
-        return {
-          status: 400,
-          body: {
-            message:
-              "Password-protected PDFs are not supported. Please remove the password and try again.",
-          },
-        };
+        throw ApiError.badRequest(
+          "Password-protected PDFs are not supported. Please remove the password and try again.",
+        );
       }
 
       const folder =
@@ -278,7 +266,7 @@ export const addContentToCourseService = async (
 
       const uploadResponse = await repo.uploadFile(localFilePath, folder);
       if (!uploadResponse) {
-        return { status: 500, body: { message: "Cloudinary upload failed" } };
+        throw ApiError.internal("Cloudinary upload failed");
       }
 
       if (fileType === "video") {
@@ -309,10 +297,7 @@ export const addContentToCourseService = async (
     }
 
     if (!video?.url && attachments.length === 0) {
-      return {
-        status: 400,
-        body: { message: "Please provide a video, PDF file, or URL" },
-      };
+      throw ApiError.badRequest("Please provide a video, PDF file, or URL");
     }
 
     const content = await repo.createContent({
@@ -327,10 +312,7 @@ export const addContentToCourseService = async (
 
     await invalidateCourseContentCache(course._id);
 
-    return {
-      status: 201,
-      body: { message: "Content added successfully", content },
-    };
+    return content;
   } catch (error) {
     await cleanupFile(localFilePath);
     throw error;
@@ -346,19 +328,16 @@ export const getSingleContentItemService = async (
   user,
 ) => {
   const course = await getCachedCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   const content = await withCache(`content:${contentId}`, TTL.content, () =>
     repo.findContentItem(contentId, course._id),
   );
-  if (!content) return { status: 404, body: { message: "Content not found" } };
+  if (!content) throw ApiError.notFound("Content not found");
 
   const isSubscribed = user?.isSubscribed || false;
   if (!content.isFree && !isSubscribed) {
-    return {
-      status: 403,
-      body: { message: "Subscription required to access this content" },
-    };
+    throw ApiError.forbidden("Subscription required to access this content");
   }
 
   // Fire-and-forget — must not block the response
@@ -366,7 +345,7 @@ export const getSingleContentItemService = async (
     .upsertWatchHistory(user._id, contentId, course._id)
     .catch((err) => console.error("Watch history update failed:", err.message));
 
-  return { status: 200, body: content };
+  return content;
 };
 
 /* ============================================================
@@ -374,19 +353,14 @@ export const getSingleContentItemService = async (
 ============================================================ */
 export const deleteContentFromCourseService = async (courseId, contentId) => {
   const course = await getCachedCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   if (!mongoose.Types.ObjectId.isValid(contentId)) {
-    return { status: 400, body: { message: "Invalid content ID" } };
+    throw ApiError.badRequest("Invalid content ID");
   }
 
   const content = await repo.findContentForMutation(contentId, course._id);
-  if (!content) {
-    return {
-      status: 404,
-      body: { message: "Content not found for this course" },
-    };
-  }
+  if (!content) throw ApiError.notFound("Content not found for this course");
 
   await Promise.all([
     repo.deleteContentById(contentId),
@@ -395,10 +369,7 @@ export const deleteContentFromCourseService = async (courseId, contentId) => {
 
   await invalidateCourseContentCache(course._id);
 
-  return {
-    status: 200,
-    body: { message: "Content deleted successfully", contentId },
-  };
+  return { contentId };
 };
 
 /* ============================================================
@@ -414,18 +385,16 @@ export const addAttachmentToContentService = async (
 
   try {
     const course = await getCachedCourse(courseId);
-    if (!course) return { status: 404, body: { message: "Course not found" } };
+    if (!course) throw ApiError.notFound("Course not found");
 
     const content = await repo.findContentForMutation(contentId, course._id);
-    if (!content)
-      return { status: 404, body: { message: "Content not found" } };
+    if (!content) throw ApiError.notFound("Content not found");
 
     if (!content.video?.publicId && !content.video?.url) {
       await cleanupFile(localFilePath);
-      return {
-        status: 400,
-        body: { message: "Attachments can only be added to video content" },
-      };
+      throw ApiError.badRequest(
+        "Attachments can only be added to video content",
+      );
     }
 
     const { attachmentType, attachmentName, attachmentUrl } = body;
@@ -433,20 +402,14 @@ export const addAttachmentToContentService = async (
 
     if (file) {
       if (file.size > MAX_FILE_SIZE) {
-        return {
-          status: 400,
-          body: { message: "File size exceeds 200MB limit" },
-        };
+        throw ApiError.badRequest("File size exceeds 200MB limit");
       }
 
       if (
         file.mimetype === "application/pdf" &&
         isPasswordProtectedPdf(localFilePath)
       ) {
-        return {
-          status: 400,
-          body: { message: "Password-protected PDFs are not supported." },
-        };
+        throw ApiError.badRequest("Password-protected PDFs are not supported.");
       }
 
       const folder =
@@ -454,7 +417,7 @@ export const addAttachmentToContentService = async (
       const uploadResponse = await repo.uploadFile(localFilePath, folder);
 
       if (!uploadResponse) {
-        return { status: 500, body: { message: "Cloudinary upload failed" } };
+        throw ApiError.internal("Cloudinary upload failed");
       }
 
       newAttachment = {
@@ -472,19 +435,13 @@ export const addAttachmentToContentService = async (
         publicId: "",
       };
     } else {
-      return { status: 400, body: { message: "Please provide a file or URL" } };
+      throw ApiError.badRequest("Please provide a file or URL");
     }
 
     await repo.pushAttachment(contentId, newAttachment);
     const updatedContent = await repo.findContentById(contentId);
 
-    return {
-      status: 200,
-      body: {
-        message: "Attachment added successfully",
-        content: updatedContent,
-      },
-    };
+    return updatedContent;
   } catch (error) {
     await cleanupFile(localFilePath);
     throw error;
@@ -500,18 +457,15 @@ export const deleteAttachmentService = async (
   attachmentId,
 ) => {
   const course = await getCachedCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   const content = await repo.findContentForMutation(contentId, course._id);
-  if (!content) return { status: 404, body: { message: "Content not found" } };
+  if (!content) throw ApiError.notFound("Content not found");
 
   const attachment = content.attachments.id(attachmentId);
-  if (!attachment)
-    return { status: 404, body: { message: "Attachment not found" } };
+  if (!attachment) throw ApiError.notFound("Attachment not found");
 
   await repo.pullAttachment(contentId, attachmentId);
-
-  return { status: 200, body: { message: "Attachment deleted successfully" } };
 };
 
 /* ============================================================
@@ -519,19 +473,16 @@ export const deleteAttachmentService = async (
 ============================================================ */
 export const getSignedUrlService = async (courseId, contentId, user) => {
   const course = await getCachedCourse(courseId);
-  if (!course) return { status: 404, body: { message: "Course not found" } };
+  if (!course) throw ApiError.notFound("Course not found");
 
   const content = await withCache(`content:${contentId}`, TTL.content, () =>
     repo.findContentItem(contentId, course._id),
   );
-  if (!content) return { status: 404, body: { message: "Content not found" } };
+  if (!content) throw ApiError.notFound("Content not found");
 
   const isSubscribed = user?.isSubscribed || false;
   if (!content.isFree && !isSubscribed) {
-    return {
-      status: 403,
-      body: { message: "Subscription required to access this content" },
-    };
+    throw ApiError.forbidden("Subscription required to access this content");
   }
 
   const urls = {};
@@ -550,5 +501,5 @@ export const getSignedUrlService = async (courseId, contentId, user) => {
     }));
   }
 
-  return { status: 200, body: { urls } };
+  return { urls };
 };

@@ -1,8 +1,8 @@
-// controllers/enrollmentController.js
 import asyncHandler from "express-async-handler";
 import Enrollment from "../models/enrollment.js";
-import Course from "../models/courseModel.js";
 import { findCourseBySlugOrId } from "../helper/courseHelper.js";
+import { ApiError } from "../../utils/ApiError.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 
 // ===============================
 // @desc    Enroll in a course
@@ -11,27 +11,20 @@ import { findCourseBySlugOrId } from "../helper/courseHelper.js";
 // ===============================
 export const enrollInCourse = asyncHandler(async (req, res) => {
   const course = await findCourseBySlugOrId(req.params.courseId);
-  if (!course) {
-    res.status(404);
-    throw new Error("Course not found");
-  }
+  if (!course) throw ApiError.notFound("Course not found");
 
-  // check already enrolled
   const existing = await Enrollment.findOne({
     user: req.user._id,
     course: course._id,
   });
-
-  if (existing) {
-    return res.status(400).json({ message: "Already enrolled in this course" });
-  }
+  if (existing) throw ApiError.conflict("Already enrolled in this course");
 
   const enrollment = await Enrollment.create({
     user: req.user._id,
     course: course._id,
   });
 
-  res.status(201).json({ message: "Enrolled successfully", enrollment });
+  new ApiResponse(201, enrollment, "Enrolled successfully").send(res);
 });
 
 // ===============================
@@ -41,21 +34,15 @@ export const enrollInCourse = asyncHandler(async (req, res) => {
 // ===============================
 export const unenrollFromCourse = asyncHandler(async (req, res) => {
   const course = await findCourseBySlugOrId(req.params.courseId);
-  if (!course) {
-    res.status(404);
-    throw new Error("Course not found");
-  }
+  if (!course) throw ApiError.notFound("Course not found");
 
   const enrollment = await Enrollment.findOneAndDelete({
     user: req.user._id,
     course: course._id,
   });
+  if (!enrollment) throw ApiError.notFound("Enrollment not found");
 
-  if (!enrollment) {
-    return res.status(404).json({ message: "Enrollment not found" });
-  }
-
-  res.json({ message: "Unenrolled successfully" });
+  new ApiResponse(200, null, "Unenrolled successfully").send(res);
 });
 
 // ===============================
@@ -65,17 +52,18 @@ export const unenrollFromCourse = asyncHandler(async (req, res) => {
 // ===============================
 export const getEnrollmentStatus = asyncHandler(async (req, res) => {
   const course = await findCourseBySlugOrId(req.params.courseId);
-  if (!course) {
-    res.status(404);
-    throw new Error("Course not found");
-  }
+  if (!course) throw ApiError.notFound("Course not found");
 
   const enrollment = await Enrollment.findOne({
     user: req.user._id,
     course: course._id,
   });
 
-  res.json({ isEnrolled: !!enrollment });
+  new ApiResponse(
+    200,
+    { isEnrolled: !!enrollment },
+    "Enrollment status fetched successfully",
+  ).send(res);
 });
 
 // ===============================
@@ -90,7 +78,8 @@ export const getMyEnrollments = asyncHandler(async (req, res) => {
     .lean();
 
   const courses = enrollments.map((e) => e.course);
-  res.json(courses);
+
+  new ApiResponse(200, courses, "Enrollments fetched successfully").send(res);
 });
 
 // ===============================
@@ -100,11 +89,11 @@ export const getMyEnrollments = asyncHandler(async (req, res) => {
 // ===============================
 export const getCourseEnrollmentCount = asyncHandler(async (req, res) => {
   const course = await findCourseBySlugOrId(req.params.courseId);
-  if (!course) {
-    res.status(404);
-    throw new Error("Course not found");
-  }
+  if (!course) throw ApiError.notFound("Course not found");
 
   const count = await Enrollment.countDocuments({ course: course._id });
-  res.json({ count });
+
+  new ApiResponse(200, { count }, "Enrollment count fetched successfully").send(
+    res,
+  );
 });

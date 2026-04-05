@@ -2,3 +2,4 @@
 .env
 public/temp/*
 !public/temp/.gitkeep
+logs/
