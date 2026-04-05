@@ -1,139 +1,193 @@
 import asyncHandler from "express-async-handler";
-import Quiz from "../models/quiz.js";
-import Question from "../models/question.js";
-import Course from "../models/courseModel.js";
-import QuizAttempt from "../models/quizAttempt.js";
-import mongoose from "mongoose";
+import ApiResponse from "../../utils/ApiResponse.js";
+import {
+  createQuizService,
+  getAllQuizzesService,
+  getQuizByIdService,
+  getQuizzesForCourseService,
+  getQuizQuestionsService,
+  getQuizAttemptStatusService,
+  submitQuizService,
+  getAttemptHistoryService,
+  reviewQuizService,
+  updateQuizService,
+  deleteQuizService,
+  addQuestionToQuizService,
+  updateQuestionService,
+  deleteQuestionService,
+  getAdminSingleQuestionService,
+  getQuizLeaderboardService,
+  getGlobalLeaderboardService,
+  addQuestionToExistingQuizService,
+} from "../services/quizService.js";
 
+export { findAttemptByIdOrSlug } from "../helper/quizHelper.js";
+
+/* ============================================================
+   Create Quiz (Admin)
+============================================================ */
 export const createQuiz = asyncHandler(async (req, res) => {
-  const { title, courseId } = req.body;
-
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid Course ID");
-  }
-
-  // Check if the parent course exists
-  const course = await Course.findById(courseId);
-  if (!course) {
-    res.status(404);
-    throw new Error("Course not found");
-  }
-
-  const quiz = new Quiz({
-    title,
-    course: courseId,
-  });
-
-  const createdQuiz = await quiz.save();
-  res.status(201).json(createdQuiz);
+  const data = await createQuizService(req.body, req.user._id);
+  new ApiResponse(201, data, "Quiz created successfully").send(res);
 });
 
-export const addQuestionToQuiz = asyncHandler(async (req, res) => {
-  const { quizId } = req.params;
-  const { text, options, correctAnswer } = req.body;
-
-  if (!mongoose.Types.ObjectId.isValid(quizId)) {
-    res.status(400);
-    throw new Error("Invalid Quiz ID");
-  }
-
-  // Check if the parent quiz exists
-  const quiz = await Quiz.findById(quizId);
-  if (!quiz) {
-    res.status(404);
-    throw new Error("Quiz not found");
-  }
-
-  const question = new Question({
-    quiz: quizId,
-    text,
-    options,
-    correctAnswer,
-  });
-
-  const createdQuestion = await question.save();
-  res.status(201).json(createdQuestion);
+/* ============================================================
+   Get All Quizzes (Public)
+============================================================ */
+export const getAllQuizzes = asyncHandler(async (req, res) => {
+  const data = await getAllQuizzesService(req.query);
+  new ApiResponse(200, data, "Quizzes fetched successfully").send(res);
 });
 
-// @desc    Get all quizzes for a course
-// @route   GET /api/v1/quizzes/course/:courseId
-// @access  Private (Subscribed)
+/* ============================================================
+   Get Quiz By ID or Slug
+============================================================ */
+export const getQuizById = asyncHandler(async (req, res) => {
+  const quiz = await getQuizByIdService(req.params.quizId);
+  new ApiResponse(200, quiz, "Quiz fetched successfully").send(res);
+});
+
+/* ============================================================
+   Get Quiz By Slug (explicit slug route)
+============================================================ */
+export const getQuizBySlug = asyncHandler(async (req, res) => {
+  const quiz = await getQuizByIdService(req.params.slug);
+  new ApiResponse(200, quiz, "Quiz fetched successfully").send(res);
+});
+
+/* ============================================================
+   Get Quizzes For a Course
+============================================================ */
 export const getQuizzesForCourse = asyncHandler(async (req, res) => {
-  // We check subscription status from our paywall middleware
-  if (!req.user.isSubscribed) {
-    res.status(403);
-    throw new Error("Not authorized. Subscription required for quizzes.");
-  }
-
-  const quizzes = await Quiz.find({ course: req.params.courseId });
-  res.json(quizzes);
+  const data = await getQuizzesForCourseService(req.params.courseId);
+  new ApiResponse(200, data, "Course quizzes fetched successfully").send(res);
 });
 
-// @desc    Get a single quiz's questions
-// @route   GET /api/v1/quizzes/:quizId/questions
-// @access  Private (Subscribed)
+/* ============================================================
+   Get Quiz Questions
+============================================================ */
 export const getQuizQuestions = asyncHandler(async (req, res) => {
-  if (!req.user.isSubscribed) {
-    res.status(403);
-    throw new Error("Not authorized. Subscription required for quizzes.");
-  }
-
-  // Find questions BUT hide the correct answer
-  const questions = await Question.find({ quiz: req.params.quizId }).select(
-    "-correctAnswer"
-  );
-
-  res.json(questions);
+  const data = await getQuizQuestionsService(req.params.quizId);
+  new ApiResponse(200, data, "Quiz questions fetched successfully").send(res);
 });
 
+/* ============================================================
+   Get Quiz Attempt Status
+============================================================ */
+export const getQuizAttemptStatus = asyncHandler(async (req, res) => {
+  const data = await getQuizAttemptStatusService(req.params.quizId, req.user);
+  new ApiResponse(200, data, "Attempt status fetched successfully").send(res);
+});
+
+/* ============================================================
+   Submit Quiz
+============================================================ */
 export const submitQuiz = asyncHandler(async (req, res) => {
-  if (!req.user.isSubscribed) {
-    res.status(403);
-    throw new Error("Not authorized. Subscription required.");
-  }
+  const data = await submitQuizService(req.params.quizId, req.body, req.user);
+  // isRetry means it was a repeat attempt on a single-attempt quiz — still 200
+  const message = data.isRetry
+    ? "Retry attempt — score not saved"
+    : "Quiz submitted successfully";
+  new ApiResponse(data.isRetry ? 200 : 201, data, message).send(res);
+});
 
-  const { quizId } = req.params;
-  const userAnswers = req.body.answers; // Expecting: [{ questionId: '...', userAnswer: '...' }]
+/* ============================================================
+   Get Attempt History
+============================================================ */
+export const getAttemptHistory = asyncHandler(async (req, res) => {
+  const data = await getAttemptHistoryService(req.params.quizId, req.user._id);
+  new ApiResponse(200, data, "Attempt history fetched successfully").send(res);
+});
 
-  // 1. Get all correct answers for this quiz from the DB
-  const allQuestions = await Question.find({ quiz: quizId });
+/* ============================================================
+   Review Quiz Attempt
+============================================================ */
+export const reviewQuiz = asyncHandler(async (req, res) => {
+  const data = await reviewQuizService(
+    req.params.quizId,
+    req.query.attempt,
+    req.user,
+  );
+  new ApiResponse(200, data, "Quiz review fetched successfully").send(res);
+});
 
-  let score = 0;
-  let detailedResults = [];
+/* ============================================================
+   Update Quiz (Admin)
+============================================================ */
+export const updateQuiz = asyncHandler(async (req, res) => {
+  const quiz = await updateQuizService(req.params.quizId, req.body);
+  new ApiResponse(200, quiz, "Quiz updated successfully").send(res);
+});
 
-  // 2. Grade the quiz
-  for (const question of allQuestions) {
-    const userAnswer = userAnswers.find(
-      (ans) => ans.questionId === question._id.toString()
-    );
+/* ============================================================
+   Delete Quiz (Admin)
+============================================================ */
+export const deleteQuiz = asyncHandler(async (req, res) => {
+  await deleteQuizService(req.params.quizId);
+  new ApiResponse(200, null, "Quiz deleted successfully").send(res);
+});
 
-    const isCorrect =
-      userAnswer && userAnswer.userAnswer === question.correctAnswer;
+/* ============================================================
+   Add Question(s) to Quiz (Admin)
+============================================================ */
+export const addQuestionToQuiz = asyncHandler(async (req, res) => {
+  const data = await addQuestionToQuizService(req.params.quizId, req.body);
+  new ApiResponse(201, data, "Questions added successfully").send(res);
+});
 
-    if (isCorrect) {
-      score++;
-    }
+/* ============================================================
+   Update Question (Admin)
+============================================================ */
+export const updateQuestion = asyncHandler(async (req, res) => {
+  const question = await updateQuestionService(
+    req.params.quizId,
+    req.params.questionId,
+    req.body,
+  );
+  new ApiResponse(200, question, "Question updated successfully").send(res);
+});
 
-    detailedResults.push({
-      question: question._id,
-      userAnswer: userAnswer ? userAnswer.userAnswer : null,
-      correctAnswer: question.correctAnswer,
-      isCorrect: isCorrect,
-    });
-  }
+/* ============================================================
+   Delete Question (Admin)
+============================================================ */
+export const deleteQuestion = asyncHandler(async (req, res) => {
+  await deleteQuestionService(req.params.questionId);
+  new ApiResponse(200, null, "Question deleted successfully").send(res);
+});
 
-  // 3. Save the attempt to the database
-  const quizAttempt = new QuizAttempt({
-    user: req.user._id,
-    quiz: quizId,
-    score: score,
-    totalQuestions: allQuestions.length,
-    answers: detailedResults,
-  });
+/* ============================================================
+   Get Single Question (Admin)
+============================================================ */
+export const getAdminSingleQuestion = asyncHandler(async (req, res) => {
+  const question = await getAdminSingleQuestionService(req.params.questionId);
+  new ApiResponse(200, question, "Question fetched successfully").send(res);
+});
 
-  const savedAttempt = await quizAttempt.save();
+/* ============================================================
+   Quiz Leaderboard
+============================================================ */
+export const getQuizLeaderboard = asyncHandler(async (req, res) => {
+  const data = await getQuizLeaderboardService(req.params.quizId);
+  new ApiResponse(200, data, "Leaderboard fetched successfully").send(res);
+});
 
-  // 4. Send the final score and results
-  res.status(201).json(savedAttempt);
+/* ============================================================
+   Global Leaderboard
+============================================================ */
+export const getGlobalLeaderboard = asyncHandler(async (req, res) => {
+  const data = await getGlobalLeaderboardService();
+  new ApiResponse(200, data, "Global leaderboard fetched successfully").send(
+    res,
+  );
+});
+
+/* ============================================================
+   Add Questions to Existing Quiz (Admin Maintenance)
+============================================================ */
+export const addQuestionToExistingQuiz = asyncHandler(async (req, res) => {
+  const data = await addQuestionToExistingQuizService(
+    req.params.quizId,
+    req.body,
+  );
+  new ApiResponse(201, data, "Questions added to quiz successfully").send(res);
 });

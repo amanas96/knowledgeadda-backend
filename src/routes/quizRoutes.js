@@ -1,32 +1,41 @@
 import express from "express";
 const router = express.Router();
 
-import { protect, admin } from "../middleware/authMiddleware.js";
-import {
-  createQuiz,
-  addQuestionToQuiz,
-  getQuizQuestions,
-  getQuizzesForCourse,
-  submitQuiz,
-} from "../controllers/quizController.js";
+import { protect } from "../middleware/authMiddleware.js";
 import { checkSubscription } from "../middleware/subscriptionMiddleware.js";
+import {
+  getAllQuizzes,
+  getQuizzesForCourse,
+  getQuizById,
+  getQuizBySlug,
+  getQuizQuestions,
+  submitQuiz,
+  getAttemptHistory,
+  reviewQuiz,
+  getQuizAttemptStatus,
+  getQuizLeaderboard,
+  getGlobalLeaderboard,
+} from "../controllers/quizController.js";
 
-// --- Admin Routes ---
+// Public
+router.get("/", getAllQuizzes);
 
-// @route   POST /api/v1/quizzes
-// @desc    Create a new quiz
-router.route("/").post(protect, admin, createQuiz);
+// Protected
+router.get("/course/:courseId", protect, getQuizzesForCourse);
 
-router
-  .route("/course/:courseId")
-  .get(protect, checkSubscription, getQuizzesForCourse);
-// @route   POST /api/v1/quizzes/:quizId/questions
-// @desc    Add a question to a specific quiz
-router
-  .route("/:quizId/questions")
-  .post(protect, admin, addQuestionToQuiz)
-  .get(protect, checkSubscription, getQuizQuestions);
+// ── Attempt routes (protected) ───────────────────────────────────────────────
+router.get("/:quizId/attempt-status", protect, getQuizAttemptStatus);
+// routes/quizRoutes.js
+router.get("/:quizId/attempts", protect, getAttemptHistory);
+router.get("/:quizId/questions", protect, checkSubscription, getQuizQuestions);
+// router.get("/:quizId/review", protect, getQuizById);
+router.post("/:quizId/submit", protect, submitQuiz);
+router.get("/:quizId/review", protect, reviewQuiz);
 
-router.route("/:quizId/submit").post(protect, checkSubscription, submitQuiz);
+router.get("/leaderboard/global", getGlobalLeaderboard);
+router.get("/:quizId/leaderboard", getQuizLeaderboard);
+
+// By ID (protected, subscription-checked)
+router.get("/:quizId", protect, checkSubscription, getQuizById);
 
 export default router;

@@ -1,39 +1,89 @@
+// import express from "express";
+// const router = express.Router();
+
+// import { protect } from "../middleware/authMiddleware.js";
+// import { checkSubscription } from "../middleware/subscriptionMiddleware.js";
+// import { getSignedUrl } from "../controllers/courseController.js";
+
+// import {
+//   getAllCourses,
+//   getCourseById,
+//   getCourseContent,
+//   getSingleContentItem,
+// } from "../controllers/courseController.js";
+
+// import {
+//   enrollInCourse,
+//   unenrollFromCourse,
+//   getEnrollmentStatus,
+// } from "../controllers/enrollmentController.js";
+
+// // Public
+// router.get("/", getAllCourses);
+// router.get("/:courseId", getCourseById);
+
+// // Student (protected + subscription)
+// router.get("/:courseId/content", protect, checkSubscription, getCourseContent);
+// router.get(
+//   "/:courseId/content/:contentId",
+//   protect,
+//   checkSubscription,
+//   getSingleContentItem,
+// );
+// router.get("/:courseId/content/:contentId/signed-url", protect, getSignedUrl);
+
+// // Enrollment
+// router
+//   .route("/:courseId/enroll")
+//   .get(protect, getEnrollmentStatus)
+//   .post(protect, enrollInCourse)
+//   .delete(protect, unenrollFromCourse);
+
+// export default router;
+
 import express from "express";
 const router = express.Router();
 
-import { protect, admin } from "../middleware/authMiddleware.js";
+import { protect } from "../middleware/authMiddleware.js";
 import { checkSubscription } from "../middleware/subscriptionMiddleware.js";
-
 import {
-  createCourse,
-  addContentToCourse,
   getAllCourses,
   getCourseById,
   getCourseContent,
   getSingleContentItem,
+  getSignedUrl,
 } from "../controllers/courseController.js";
+import {
+  enrollInCourse,
+  unenrollFromCourse,
+  getEnrollmentStatus,
+} from "../controllers/enrollmentController.js";
 
-// Admin
-router.route("/").post(protect, admin, createCourse).get(getAllCourses);
+// ─── Public ───────────────────────────────────────────────────────────────────
+router.get("/", getAllCourses);
 
-// ...
+// ─── Content routes (specific — must come BEFORE /:courseId) ─────────────────
+router.get(
+  "/:courseId/content/:contentId/signed-url", // most specific first
+  protect,
+  getSignedUrl,
+);
+router.get(
+  "/:courseId/content/:contentId",
+  protect,
+  checkSubscription,
+  getSingleContentItem,
+);
+router.get("/:courseId/content", protect, checkSubscription, getCourseContent);
+
+// ─── Enrollment routes (specific — must come BEFORE /:courseId) ──────────────
 router
-  .route("/:courseId/content")
-  .post(protect, admin, addContentToCourse)
-  .get(protect, checkSubscription, getCourseContent);
+  .route("/:courseId/enroll")
+  .get(protect, getEnrollmentStatus)
+  .post(protect, enrollInCourse)
+  .delete(protect, unenrollFromCourse);
 
-// router.route("/:courseId/content").post(protect, admin, addContentToCourse);
-
-router
-  .route("/content/:contentId")
-  .get(protect, checkSubscription, getSingleContentItem);
-
-// Student
-router.route("/:courseId").get(protect, getCourseById);
-
-// /// Paywall
-// router
-//   .route("/:courseId/content")
-//   .get(protect, checkSubscription, getCourseContent);
+// ─── Dynamic — must be LAST ───────────────────────────────────────────────────
+router.get("/:courseId", getCourseById);
 
 export default router;

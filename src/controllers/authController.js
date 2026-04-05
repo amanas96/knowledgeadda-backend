@@ -1,114 +1,7 @@
-// import User from "../models/user.js";
-// import bcrypt from "bcryptjs";
-// import jwt from "jsonwebtoken";
-// // const { validationResult } = require("express-validator");
-// import { validationResult } from "express-validator";
-
-// // Register a new user
-
-// export const registerUser = async (req, res) => {
-//   const errors = validationResult(req);
-//   if (!errors.isEmpty()) {
-//     return res.status(400).json({ errors: errors.array() });
-//   }
-
-//   const { name, email, password } = req.body;
-
-//   try {
-//     let user = await User.findOne({ email });
-//     if (user) {
-//       return res.status(400).json({ msg: "User already exists" });
-//     }
-//     //// new user Instances
-//     user = new User({
-//       name,
-//       email,
-//       password,
-//     });
-
-//     // const salt = await bcrypt.genSalt(10);
-//     // user.password = await bcrypt.hash(password, salt);
-
-//     console.log("Registering User:", {
-//       email: user.email,
-//       password: user.password,
-//     });
-//     await user.save();
-
-//     const payload = {
-//       user: { id: user.id },
-//     };
-//     jwt.sign(
-//       payload,
-//       process.env.JWT_SECRET,
-//       { expiresIn: "5h" },
-//       (err, token) => {
-//         if (err) throw err;
-//         res.json({ token });
-//       }
-//     );
-//   } catch (err) {
-//     console.error(err.message);
-//     res.status(500).send("Server error");
-//   }
-// };
-
-// /// login user
-
-// export const loginUser = async (req, res) => {
-//   const errors = validationResult(req);
-//   if (!errors.isEmpty()) {
-//     return res.status(400).json({ errors: errors.array() });
-//   }
-
-//   const { email, password } = req.body;
-//   try {
-//     console.log(`LOGIN ATTEMPT: Received login request for: ${email}`);
-//     let user = await User.findOne({
-//       email,
-//     });
-//     if (!user) {
-//       console.log("LOGIN ATTEMPT: User not found for email:", email);
-//       return res.status(400).json({ msg: "Invalid credentials" });
-//     }
-//     console.log("LOGIN ATTEMPT: Found user. Comparing passwords...");
-//     console.log("Plain-text password from Postman:", password);
-//     console.log("Hashed password from DB:", user.password);
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     console.log("LOGIN ATTEMPT: Password match result:", isMatch);
-//     if (!isMatch) {
-//       return res.status(400).json({ msg: "Invalid credentials" });
-//     }
-//     const payload = {
-//       user: { id: user.id },
-//     };
-//     jwt.sign(
-//       payload,
-//       process.env.JWT_SECRET,
-//       { expiresIn: "5h" },
-//       (err, token) => {
-//         if (err) throw err;
-//         res.json({ token });
-//       }
-//     );
-//   } catch (err) {
-//     console.error(err.message);
-//     res.status(500).send("Server error");
-//   }
-// };
-
-// // @desc    Get user profile
-// // @route   GET /api/auth/profile
-// // @access  Private
-// export const getUserProfile = asyncHandler(async (req, res) => {
-//   // req.user is already attached by the 'protect' middleware
-//   res.json(req.user);
-// });
-
 import User from "../models/user.js";
 import Token from "../models/tokenModel.js";
 import asyncHandler from "express-async-handler";
-import { check, validationResult } from "express-validator";
+import { validationResult } from "express-validator";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -116,279 +9,334 @@ import {
 } from "../../utils/generateToken.js";
 import { sendPasswordResetEmail } from "../../utils/sendEmail.js";
 import jwt from "jsonwebtoken";
-import UserSubscription from "../models/userSubscription.js";
 import { getSubscriptionStatus } from "../../utils/getSubscriptionStatus.js";
+import UserSubscription from "../models/userSubscription.js";
+import Course from "../models/courseModel.js";
+import Content from "../models/contentModel.js";
+import WatchHistory from "../models/watchHistoryModel.js";
+import QuizAttempt from "../models/quizAttempt.js";
+import { ApiError } from "../../utils/ApiError.js";
+import ApiResponse from "../../utils/ApiResponse.js";
 
-// @desc    Register a new user
-// @route   POST /api/auth/register
-// @access  Public
-export const registerUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  const { name, email, password } = req.body;
-  const userExists = await User.findOne({ email });
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
-  if (userExists) {
-    return res.status(400).json({ message: "User already exists" });
-  }
+const cookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+  maxAge: REFRESH_TOKEN_EXPIRY_MS,
+};
 
-  const user = new User({ name, email, password });
-  await user.save(); // pre('save') hook will hash password
+const clearCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+  maxAge: 0,
+  path: "/",
+};
 
-  if (user) {
-    // 1. Create tokens
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
-
-    // 2. Save Refresh Token to database
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    await Token.create({
-      userId: user._id,
-      token: refreshToken,
-      type: "refresh",
-      expiresAt,
-    });
-
-    // 3. Send response
-    res.status(201).json({
-      accessToken,
-      refreshToken,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isAdmin: user.isAdmin,
-      },
-    });
-  } else {
-    res.status(500);
-    throw new Error("Invalid user data");
-  }
-});
-
-// @desc    Auth user & get token (Login)
-// @route   POST /api/auth/login
-// @access  Public
-////////////////// login user ///////////////////////////////
-export const loginUser = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
-
-  if (!user || !(await user.matchPassword(password))) {
-    res.status(401);
-    throw new Error("Invalid email or password");
-  }
-
-  // 1. Create tokens
-  const accessToken = generateAccessToken(user._id);
+// ─── sendTokenResponse: custom shape — DO NOT wrap in ApiResponse ─────────────
+// Frontend AuthContext reads accessToken and user directly from response body.
+// Changing this shape would break the entire auth flow.
+const sendTokenResponse = async (user, statusCode, res) => {
+  const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken(user._id);
 
-  // 2. Save Refresh Token to database
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
   await Token.create({
     userId: user._id,
     token: refreshToken,
     type: "refresh",
-    expiresAt,
+    expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
   });
 
-  // 3. Send response
-  res.json({
-    accessToken,
-    refreshToken,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      isAdmin: user.isAdmin,
-    },
-  });
-});
+  res.cookie("refreshToken", refreshToken, cookieOptions);
 
-// @desc    Refresh access token
-// @route   POST /api/auth/refresh
-// @access  Public
-
-//////////////// refresh access /////////////
-export const refreshAccessToken = asyncHandler(async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  const { refreshToken } = req.body;
-  if (!refreshToken) {
-    res.status(401);
-    throw new Error("No refresh token provided");
-  }
-
-  // 1. Find token in database
-  const tokenDoc = await Token.findOne({
-    token: refreshToken,
-    type: "refresh",
-  });
-  if (!tokenDoc) {
-    res.status(401);
-    throw new Error("Invalid refresh token");
-  }
-
-  // 2. Verify the token
-  try {
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    const user = await User.findById(decoded.id).select("-password");
-
-    if (!user) {
-      res.status(401);
-      throw new Error("User not found");
-    }
-    const isSubscribed = await getSubscriptionStatus(user._id);
-
-    // 3. Issue new access token
-    const accessToken = generateAccessToken(user._id);
-    res.json({
+  new ApiResponse(
+    statusCode,
+    {
       accessToken,
       user: {
         _id: user._id,
         name: user.name,
         email: user.email,
         isAdmin: user.isAdmin,
-        isSubscribed,
       },
-    });
-  } catch (error) {
-    res.status(401);
-    throw new Error("Refresh token is invalid or expired");
-  }
-});
+    },
+    statusCode === 201 ? "Registered successfully" : "Logged in successfully",
+  ).send(res);
+};
 
-// @desc    Logout user
-// @route   POST /api/auth/logout
-// @access  Public (requires token in body)
-export const logoutUser = asyncHandler(async (req, res) => {
+// ─── Register ─────────────────────────────────────────────────────────────────
+export const registerUser = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    throw new ApiError(400, "Validation failed", errors.array());
   }
-  const { refreshToken } = req.body;
 
-  // Delete the refresh token from the database
-  const result = await Token.deleteOne({
+  const { name, email, password } = req.body;
+
+  const userExists = await User.findOne({ email });
+  if (userExists) throw ApiError.conflict("User already exists");
+
+  const user = await User.create({ name, email, password, isAdmin: false });
+
+  await sendTokenResponse(user, 201, res);
+});
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+export const loginUser = asyncHandler(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new ApiError(400, "Validation failed", errors.array());
+  }
+
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+
+  if (!user || !(await user.matchPassword(password))) {
+    throw ApiError.unauthorized("Invalid email or password");
+  }
+
+  await sendTokenResponse(user, 200, res);
+});
+
+// ─── Refresh access token ─────────────────────────────────────────────────────
+// Response shape intentionally kept raw — AuthContext reads accessToken and
+// user directly. Wrapping in ApiResponse would break the frontend auth flow.
+export const refreshAccessToken = asyncHandler(async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  if (!refreshToken) throw ApiError.unauthorized("No refresh token provided");
+
+  const tokenDoc = await Token.findOne({
     token: refreshToken,
     type: "refresh",
   });
+  if (!tokenDoc) throw ApiError.unauthorized("Invalid refresh token");
 
-  if (result.deletedCount === 0) {
-    return res.status(400).json({
-      message: "Already logged out or token not found",
-    });
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    if (tokenDoc.userId.toString() !== decoded.id) {
+      await Token.deleteOne({ _id: tokenDoc._id });
+      throw ApiError.forbidden("Token integrity error");
+    }
+
+    const user = await User.findById(decoded.id).select("-password");
+    if (!user) throw ApiError.unauthorized("User not found");
+
+    const isSubscribed = await getSubscriptionStatus(user._id);
+    const accessToken = generateAccessToken(user);
+
+    new ApiResponse(
+      200,
+      {
+        accessToken,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          isAdmin: user.isAdmin,
+          isSubscribed,
+        },
+      },
+      "Access token refreshed successfully",
+    ).send(res);
+  } catch (error) {
+    if (error.isOperational) throw error;
+    throw ApiError.unauthorized("Refresh token is invalid or expired");
+  }
+});
+
+// ─── Logout ───────────────────────────────────────────────────────────────────
+export const logoutUser = asyncHandler(async (req, res) => {
+  const refreshToken = req.cookies.refreshToken;
+  if (refreshToken) {
+    await Token.deleteOne({ token: refreshToken, type: "refresh" });
+  }
+  res.clearCookie("refreshToken", clearCookieOptions);
+  new ApiResponse(200, null, "Logged out successfully").send(res);
+});
+
+// ─── Logout all devices ───────────────────────────────────────────────────────
+export const logoutAllDevices = asyncHandler(async (req, res) => {
+  await Token.deleteMany({ userId: req.user._id, type: "refresh" });
+  res.clearCookie("refreshToken", clearCookieOptions);
+  new ApiResponse(200, null, "Logged out from all devices successfully").send(
+    res,
+  );
+});
+
+// ─── Get user profile ─────────────────────────────────────────────────────────
+export const getUserProfile = asyncHandler(async (req, res) => {
+  const userObject = { ...req.user };
+
+  const activeSubscription = await UserSubscription.findOne({
+    user: req.user._id,
+    status: "active",
+    endDate: { $gt: new Date() },
+  }).populate("plan", "name price durationInDays");
+
+  if (activeSubscription) {
+    userObject.isSubscribed = true;
+    userObject.subscription = {
+      planName: activeSubscription.plan.name,
+      startDate: activeSubscription.startDate,
+      endDate: activeSubscription.endDate,
+      status: activeSubscription.status,
+    };
+  } else {
+    userObject.isSubscribed = false;
+    userObject.subscription = null;
   }
 
-  res.json({ message: "Logged out successfully" });
-});
+  if (req.user.role === "admin") {
+    const myCourses = await Course.find({ createdBy: req.user._id }).sort({
+      createdAt: -1,
+    });
+    const myContent = await Content.find({ createdBy: req.user._id })
+      .populate("course", "title")
+      .sort({ createdAt: -1 });
 
-// @desc    Logout from all devices
-// @route   POST /api/auth/logout-all
-// @access  Private
-export const logoutAllDevices = asyncHandler(async (req, res) => {
-  // Invalidate all refresh tokens for this user
-  await Token.deleteMany({
-    userId: req.user._id,
-    type: "refresh",
+    return new ApiResponse(
+      200,
+      {
+        role: "admin",
+        user: userObject,
+        stats: {
+          totalCourses: myCourses.length,
+          totalContent: myContent.length,
+        },
+        myCourses,
+        myContent,
+      },
+      "Profile fetched successfully",
+    ).send(res);
+  }
+
+  const watchHistory = await WatchHistory.find({ user: req.user._id })
+    .populate("content", "title contentType contentUrl")
+    .populate("course", "title thumbnailUrl")
+    .sort({ lastWatchedAt: -1 });
+
+  const quizAttempts = await QuizAttempt.find({
+    user: req.user._id,
+    status: "completed",
   });
 
-  res.status(200).json({ message: "Logged out from all devices successfully" });
+  return new ApiResponse(
+    200,
+    {
+      role: "student",
+      user: userObject,
+      stats: {
+        totalWatchTime: watchHistory.reduce(
+          (s, e) => s + (e.watchedMinutes || 0),
+          0,
+        ),
+        totalWatchedContents: watchHistory.length,
+        quizzesCompleted: quizAttempts.length,
+        totalQuizScore: quizAttempts.reduce((s, a) => s + a.score, 0),
+        avgQuizPercentage:
+          quizAttempts.length > 0
+            ? Math.round(
+                quizAttempts.reduce((s, q) => s + q.percentage, 0) /
+                  quizAttempts.length,
+              )
+            : 0,
+      },
+      watchHistory,
+      quizAttempts,
+    },
+    "Profile fetched successfully",
+  ).send(res);
 });
 
-// @desc    Get user profile
-// @route   GET /api/auth/profile
-// @access  Private
-export const getUserProfile = asyncHandler(async (req, res) => {
-  const userObject = req.user.toObject();
-  const isSubscribed = await getSubscriptionStatus(req.user._id);
-  userObject.isSubscribed = isSubscribed;
-
-  res.json(userObject);
-});
-
-// --- RESET PASSWORD ---
-
-// @desc    Forgot password
-// @route   POST /api/auth/forgot-password
-// @access  Public
+// ─── Forgot password ──────────────────────────────────────────────────────────
 export const forgotPassword = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    throw new ApiError(400, "Validation failed", errors.array());
   }
+
   const { email } = req.body;
   const user = await User.findOne({ email });
 
+  // Intentionally vague — never reveal whether email exists
   if (user) {
-    // 1. Create a reset token
     const resetToken = generateResetToken(user._id);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    // 2. Save reset token to DB
     await Token.create({
       userId: user._id,
       token: resetToken,
       type: "reset",
-      expiresAt,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
-
-    // 3. Create reset URL (Update 3000 if your frontend runs on a different port)
     const resetUrl = `${process.env.CLIENT_URL}/reset-password/${resetToken}`;
-
-    // 4. Send the (mock) email
     await sendPasswordResetEmail(user.email, resetUrl);
   }
 
-  // Always send a success response to prevent email enumeration
-  return res.status(200).json({
-    success: true,
-    message:
-      "If an account with this email exists, a reset link has been sent.",
-  });
+  new ApiResponse(
+    200,
+    null,
+    "If an account with this email exists, a reset link has been sent.",
+  ).send(res);
 });
 
-// @desc    Reset password
-// @route   POST /api/auth/reset-password/:token
-// @access  Public
+// ─── Reset password ───────────────────────────────────────────────────────────
 export const resetPassword = asyncHandler(async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
+    throw new ApiError(400, "Validation failed", errors.array());
   }
+
   const { token } = req.params;
   const { password } = req.body;
 
-  // 1. Find the reset token in the DB
   const tokenDoc = await Token.findOne({ token, type: "reset" });
-
-  // 2. Check if valid and not expired
   if (!tokenDoc || tokenDoc.expiresAt < new Date()) {
-    res.status(400);
-    throw new Error("Token is invalid or has expired");
+    throw ApiError.badRequest("Token is invalid or has expired");
   }
 
-  // 3. Find the user
   const user = await User.findById(tokenDoc.userId);
-  if (!user) {
-    res.status(400);
-    throw new Error("User not found");
-  }
+  if (!user) throw ApiError.badRequest("User not found");
 
-  // 4. Set new password
-  user.password = password; // The pre('save') hook will hash it
+  user.password = password;
   await user.save();
-
-  // 5. Delete the used reset token
   await Token.deleteOne({ _id: tokenDoc._id });
 
-  res.json({ message: "Password reset successfully" });
+  new ApiResponse(200, null, "Password reset successfully").send(res);
+});
+
+// ─── Update profile ───────────────────────────────────────────────────────────
+export const updateUserProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) throw ApiError.notFound("User not found");
+
+  const fields = [
+    "phone",
+    "address",
+    "city",
+    "state",
+    "pinCode",
+    "landmark",
+    "name",
+  ];
+  fields.forEach((f) => {
+    if (req.body[f]) user[f] = req.body[f];
+  });
+
+  const updatedUser = await user.save();
+
+  new ApiResponse(
+    200,
+    {
+      name: updatedUser.name,
+      phone: updatedUser.phone,
+      address: updatedUser.address,
+      city: updatedUser.city,
+      state: updatedUser.state,
+      pinCode: updatedUser.pinCode,
+      landmark: updatedUser.landmark,
+    },
+    "Profile updated successfully",
+  ).send(res);
 });

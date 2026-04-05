@@ -4,10 +4,19 @@ import jwt from "jsonwebtoken";
  * Generates a short-lived Access Token.
  * @param {string} id - The user's ID.
  */
-export const generateAccessToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_ACCESS_SECRET, {
-    expiresIn: process.env.JWT_ACCESS_EXPIRATION,
-  });
+export const generateAccessToken = (user) => {
+  return jwt.sign(
+    {
+      id: user._id,
+      email: user.email,
+      name: user.name,
+      isAdmin: user.isAdmin,
+    },
+    process.env.JWT_ACCESS_SECRET,
+    {
+      expiresIn: process.env.JWT_ACCESS_EXPIRATION,
+    }
+  );
 };
 
 /**

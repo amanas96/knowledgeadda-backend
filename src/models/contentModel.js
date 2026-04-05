@@ -1,37 +1,72 @@
-// In models/contentModel.js
 import mongoose from "mongoose";
+
+const attachmentSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ["pdf", "notes", "link"],
+    required: true,
+  },
+  name: { type: String, required: true },
+  url: { type: String, required: true },
+  publicId: { type: String, default: "" },
+  cloudinaryResourceType: { type: String, default: "raw" },
+});
 
 const contentSchema = new mongoose.Schema(
   {
     title: {
       type: String,
       required: true,
+      trim: true,
     },
-    // This is the link to its parent course
     course: {
-      type: mongoose.Schema.Types.ObjectId, // A reference to a Course
-      ref: "Course", // The model to use for the reference
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Course",
       required: true,
     },
-    contentType: {
+
+    section: {
       type: String,
-      enum: ["video", "pdf", "quiz"], // Must be one of these values
-      required: true,
+      default: "General", // e.g. "Polity", "History", "Geography"
+      trim: true,
     },
-    // This will be the URL to the video on Vimeo/S3 or the PDF on S3
-    contentUrl: {
-      type: String,
-      required: true,
+
+    // ── Primary Video ──────────────────────────────────────
+    video: {
+      url: { type: String, default: "" },
+      publicId: { type: String, default: "" },
+      duration: { type: Number, default: 0 },
     },
+
+    // ── Attachments (pdf, notes, links) ────────────────────
+    attachments: [attachmentSchema],
+
     isFree: {
       type: Boolean,
-      default: false, // By default, content is NOT free
+      default: false,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true },
 );
+
+// most critical — getCourseContent does: Content.find({ course: courseId })
+// without this index every query is a full collection scan
+contentSchema.index({ course: 1 });
+
+// getSingleContentItem does: Content.findOne({ _id, course })
+// compound index covers both fields in one lookup
+contentSchema.index({ course: 1, _id: 1 });
+
+// filter by section within a course (e.g. course content grouped by section)
+contentSchema.index({ course: 1, section: 1 });
+
+// sort by creation order within a course
+contentSchema.index({ course: 1, createdAt: 1 });
 
 const Content = mongoose.model("Content", contentSchema);
 export default Content;

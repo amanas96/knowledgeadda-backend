@@ -1,20 +1,43 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
+const passwordRegex = new RegExp(
+  "^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[!@#$%^&*])(?=.{6,12})",
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: {
+      type: String,
+      required: true,
+      minlength: [6, "Password must be at least 6 Character long"],
+      validate: {
+        validator: function (v) {
+          return passwordRegex.test(v);
+        },
+        message: () =>
+          "Password must include at least one uppercase letter, one lowercase, one number, one special character",
+      },
+    },
 
     isAdmin: {
       type: Boolean,
       required: true,
-      default: false, // Default new users to NOT be admins
+      default: false,
     },
     date: { type: Date, default: Date.now },
+
+    // --- NEW PROFILE FIELDS ---
+    phone: { type: String },
+    address: { type: String },
+    city: { type: String },
+    state: { type: String },
+    pinCode: { type: String },
+    landmark: { type: String },
   },
-  { timestamp: true }
+  { timestamps: true },
 );
 
 userSchema.pre("save", async function (next) {

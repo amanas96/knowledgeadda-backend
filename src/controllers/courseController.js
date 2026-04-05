@@ -1,147 +1,166 @@
-// In controllers/courseController.js
 import asyncHandler from "express-async-handler";
-import Course from "../models/courseModel.js";
-import Content from "../models/contentModel.js";
-import mongoose from "mongoose";
+import ApiResponse from "../../utils/ApiResponse.js";
+import {
+  getAllCoursesService,
+  getCourseByIdService,
+  createCourseService,
+  updateCourseService,
+  deleteCourseService,
+  getCourseContentService,
+  addContentToCourseService,
+  getSingleContentItemService,
+  deleteContentFromCourseService,
+  addAttachmentToContentService,
+  deleteAttachmentService,
+  getSignedUrlService,
+} from "../services/courseService.js";
 
+// =============================================================================
+// @desc    Get all courses (paginated, sorted)
+// @route   GET /api/v1/courses
+// @access  Public
+// =============================================================================
+export const getAllCourses = asyncHandler(async (req, res) => {
+  const data = await getAllCoursesService(req.query);
+  new ApiResponse(200, data, "Courses fetched successfully").send(res);
+});
+
+// =============================================================================
+// @desc    Get a single course by ID or slug
+// @route   GET /api/v1/courses/:courseId
+// @access  Public
+// =============================================================================
+export const getCourseById = asyncHandler(async (req, res) => {
+  const course = await getCourseByIdService(req.params.courseId);
+  new ApiResponse(200, course, "Course fetched successfully").send(res);
+});
+
+// =============================================================================
 // @desc    Create a new course
 // @route   POST /api/v1/courses
 // @access  Private/Admin
+// =============================================================================
 export const createCourse = asyncHandler(async (req, res) => {
-  // 1. Get data from the request body
-  const { title, description, thumbnailUrl, tags } = req.body;
-
-  // 2. Simple validation
-  if (!title || !description || !thumbnailUrl) {
-    res.status(400); // Bad Request
-    throw new Error("Please provide title, description, and thumbnailUrl");
-  }
-
-  // 3. Create a new course instance
-  const course = new Course({
-    title,
-    description,
-    thumbnailUrl,
-    tags: tags || [], // Use provided tags or default to an empty array
-  });
-
-  // 4. Save to the database
-  const createdCourse = await course.save();
-
-  // 5. Send response
-  res.status(201).json(createdCourse); // 201 = Resource Created
+  const course = await createCourseService(req.body, req.user._id);
+  new ApiResponse(201, course, "Course created successfully").send(res);
 });
 
+// =============================================================================
+// @desc    Update a course
+// @route   PUT /api/v1/courses/:courseId
+// @access  Private/Admin
+// =============================================================================
+export const updateCourse = asyncHandler(async (req, res) => {
+  const course = await updateCourseService(req.params.courseId, req.body);
+  new ApiResponse(200, course, "Course updated successfully").send(res);
+});
+
+// =============================================================================
+// @desc    Delete a course and all related data
+// @route   DELETE /api/v1/courses/:courseId
+// @access  Private/Admin
+// =============================================================================
+export const deleteCourse = asyncHandler(async (req, res) => {
+  await deleteCourseService(req.params.courseId);
+  new ApiResponse(
+    200,
+    null,
+    "Course and all related content deleted successfully",
+  ).send(res);
+});
+
+// =============================================================================
+// @desc    Get all content for a specific course
+// @route   GET /api/v1/courses/:courseId/content
+// @access  Private (Paywall)
+// =============================================================================
+export const getCourseContent = asyncHandler(async (req, res) => {
+  const isSubscribed = req.user?.isSubscribed ?? false;
+  const data = await getCourseContentService(req.params.courseId, isSubscribed);
+  new ApiResponse(200, data, "Course content fetched successfully").send(res);
+});
+
+// =============================================================================
 // @desc    Add new content to a specific course
 // @route   POST /api/v1/courses/:courseId/content
 // @access  Private/Admin
+// =============================================================================
 export const addContentToCourse = asyncHandler(async (req, res) => {
-  // 1. Get the course ID from the URL parameters
-  const { courseId } = req.params;
-
-  // 2. Get content data from the request body
-  const { title, contentType, contentUrl, isFree } = req.body;
-
-  // 3. Validate Course ID
-  if (!mongoose.Types.ObjectId.isValid(courseId)) {
-    res.status(400);
-    throw new Error("Invalid Course ID");
-  }
-
-  // 4. Find the parent course to make sure it exists
-  const course = await Course.findById(courseId);
-
-  if (!course) {
-    res.status(404); // Not Found
-    throw new Error("Course not found");
-  }
-
-  // 5. Validate content data
-  if (!title || !contentType || !contentUrl) {
-    res.status(400);
-    throw new Error("Please provide title, contentType, and contentUrl");
-  }
-
-  // 6. Create the new content instance
-  const content = new Content({
-    title,
-    course: courseId, // Link this content to its parent course
-    contentType,
-    contentUrl,
-    isFree: isFree || false, // Default to false if not provided
-  });
-
-  // 7. Save to the database
-  const createdContent = await content.save();
-
-  // 8. Send response
-  res.status(201).json(createdContent);
+  const content = await addContentToCourseService(
+    req.params.courseId,
+    req.body,
+    req.file,
+    req.user._id,
+  );
+  new ApiResponse(201, content, "Content added successfully").send(res);
 });
 
-export const getAllCourses = asyncHandler(async (req, res) => {
-  const courses = await Course.find({}); // Find all courses
-  res.json(courses);
-});
-
-export const getCourseById = asyncHandler(async (req, res) => {
-  const course = await Course.findById(req.params.courseId);
-
-  if (course) {
-    res.json(course);
-  } else {
-    res.status(404);
-    throw new Error("Course not found");
-  }
-});
-
-export const getCourseContent = asyncHandler(async (req, res) => {
-  let content;
-
-  // checkSubscription middleware adds 'isSubscribed'
-  if (req.user.isSubscribed) {
-    // --- SUBSCRIBED USER ---
-    // Get ALL content for this course
-    content = await Content.find({ course: req.params.courseId });
-  } else {
-    // --- NON-SUBSCRIBED USER ---
-    // Get ONLY the free content
-    content = await Content.find({
-      course: req.params.courseId,
-      isFree: true,
-    });
-  }
-
-  if (content) {
-    res.json(content);
-  } else {
-    res.status(404);
-    throw new Error("Content not found for this course");
-  }
-});
-
+// =============================================================================
+// @desc    Get a single content item
+// @route   GET /api/v1/courses/:courseId/content/:contentId
+// @access  Private (Paywall)
+// =============================================================================
 export const getSingleContentItem = asyncHandler(async (req, res) => {
-  const { contentId } = req.params;
+  const content = await getSingleContentItemService(
+    req.params.courseId,
+    req.params.contentId,
+    req.user,
+  );
+  new ApiResponse(200, content, "Content fetched successfully").send(res);
+});
 
-  if (!mongoose.Types.ObjectId.isValid(contentId)) {
-    res.status(400);
-    throw new Error("Invalid Content ID");
-  }
+// =============================================================================
+// @desc    Delete a specific content item
+// @route   DELETE /api/v1/courses/:courseId/content/:contentId
+// @access  Private/Admin
+// =============================================================================
+export const deleteContentFromCourse = asyncHandler(async (req, res) => {
+  const data = await deleteContentFromCourseService(
+    req.params.courseId,
+    req.params.contentId,
+  );
+  new ApiResponse(200, data, "Content deleted successfully").send(res);
+});
 
-  const content = await Content.findById(contentId);
+// =============================================================================
+// @desc    Add attachment to existing content
+// @route   POST /api/v1/courses/:courseId/content/:contentId/attachments
+// @access  Private/Admin
+// =============================================================================
+export const addAttachmentToContent = asyncHandler(async (req, res) => {
+  const content = await addAttachmentToContentService(
+    req.params.courseId,
+    req.params.contentId,
+    req.body,
+    req.file,
+  );
+  new ApiResponse(200, content, "Attachment added successfully").send(res);
+});
 
-  if (!content) {
-    res.status(404);
-    throw new Error("Content not found");
-  }
-  /// PayWall logic
-  if (content.isFree) {
-    return res.json(content);
-  }
-  if (req.user.isSubscribed) {
-    return res.json(content);
-  }
+// =============================================================================
+// @desc    Delete a specific attachment
+// @route   DELETE /api/v1/courses/:courseId/content/:contentId/attachments/:attachmentId
+// @access  Private/Admin
+// =============================================================================
+export const deleteAttachment = asyncHandler(async (req, res) => {
+  await deleteAttachmentService(
+    req.params.courseId,
+    req.params.contentId,
+    req.params.attachmentId,
+  );
+  new ApiResponse(200, null, "Attachment deleted successfully").send(res);
+});
 
-  // 3. If not free and not subscribed, deny access
-  res.status(403);
-  throw new Error("Subscription required to view this content.");
+// =============================================================================
+// @desc    Get content URLs (video + attachments)
+// @route   GET /api/v1/courses/:courseId/content/:contentId/signed-url
+// @access  Private
+// =============================================================================
+export const getSignedUrl = asyncHandler(async (req, res) => {
+  const data = await getSignedUrlService(
+    req.params.courseId,
+    req.params.contentId,
+    req.user,
+  );
+  new ApiResponse(200, data, "Signed URLs fetched successfully").send(res);
 });
